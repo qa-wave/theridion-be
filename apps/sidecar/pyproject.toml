@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "httpx[http2]>=0.28",
     "pydantic>=2.10",
+    "zeep>=4.3.2",
 ]
 
 [dependency-groups]

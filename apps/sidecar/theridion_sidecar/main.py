@@ -23,6 +23,7 @@ from theridion_sidecar.api.diagnostics import router as diagnostics_router
 from theridion_sidecar.api.environments import router as environments_router
 from theridion_sidecar.api.health import router as health_router
 from theridion_sidecar.api.requests import router as requests_router
+from theridion_sidecar.api.soap import router as soap_router
 
 
 def create_app() -> FastAPI:
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(requests_router)
     app.include_router(collections_router)
     app.include_router(environments_router)
+    app.include_router(soap_router)
     app.include_router(diagnostics_router)
     return app
 
