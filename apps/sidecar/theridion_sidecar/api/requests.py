@@ -10,7 +10,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import environments
+from .. import cookies, environments
 from ..models import AuthConfig
 
 router = APIRouter(prefix="/api/requests", tags=["requests"])
@@ -41,6 +41,7 @@ class ExecuteResponse(BaseModel):
     # Echo back the URL after env-var substitution — handy for debugging
     # "why didn't my {{baseUrl}} resolve" without re-running the request.
     resolved_url: str | None = None
+    cookies: dict[str, str] = Field(default_factory=dict)
 
 
 def _apply_auth(
@@ -85,12 +86,17 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
     if req.auth and req.auth.type != "none":
         _apply_auth(req.auth, resolved_headers, resolved_query, env)
 
+    # Load persisted cookies for this environment.
+    jar = cookies.load(req.environment_id) if req.environment_id else None
+    httpx_cookies = cookies.to_httpx_cookies(jar) if jar and jar.cookies else None
+
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(
             http2=True,
             timeout=req.timeout_seconds,
             follow_redirects=req.follow_redirects,
+            cookies=httpx_cookies,
         ) as client:
             response = await client.request(
                 method=req.method,
@@ -102,6 +108,14 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"transport error: {exc}") from exc
 
+    # Persist response cookies back to the jar.
+    response_cookies = dict(response.cookies)
+    if jar and req.environment_id:
+        updated_jar = cookies.from_httpx_response(
+            req.environment_id, jar, response_cookies,
+        )
+        cookies.save(updated_jar)
+
     elapsed_ms = (time.perf_counter() - started) * 1000
     return ExecuteResponse(
         status=response.status_code,
@@ -112,4 +126,5 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
         elapsed_ms=round(elapsed_ms, 2),
         final_url=str(response.url),
         resolved_url=resolved_url if env is not None else None,
+        cookies=response_cookies,
     )

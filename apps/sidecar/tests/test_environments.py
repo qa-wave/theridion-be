@@ -140,6 +140,7 @@ class _FakeResponse:
         self.text = ""
         self.content = b""
         self.url = url
+        self.cookies: dict[str, str] = {}
 
 
 class _FakeClient:
