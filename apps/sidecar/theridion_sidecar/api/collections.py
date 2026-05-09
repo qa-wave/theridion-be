@@ -1,4 +1,4 @@
-"""CRUD endpoints for collections and the requests inside them."""
+"""CRUD endpoints for collections, folders, and the requests inside."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from fastapi import APIRouter, HTTPException
 from .. import storage
 from ..models import (
     Collection,
+    CollectionItem,
     CollectionSummary,
     CreateCollectionInput,
+    CreateFolderInput,
     SaveRequestInput,
-    SavedRequest,
 )
 
 router = APIRouter(prefix="/api/collections", tags=["collections"])
@@ -42,18 +43,43 @@ def delete_collection(collection_id: str) -> None:
         raise HTTPException(status_code=404, detail="collection not found")
 
 
+@router.post("/{collection_id}/folders", response_model=Collection, status_code=201)
+def create_folder(collection_id: str, body: CreateFolderInput) -> Collection:
+    folder = CollectionItem(
+        id=str(uuid.uuid4()),
+        name=body.name,
+        is_folder=True,
+        items=[],
+    )
+    try:
+        return storage.add_folder(collection_id, folder, body.parent_folder_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.delete(
+    "/{collection_id}/folders/{folder_id}", response_model=Collection
+)
+def delete_folder(collection_id: str, folder_id: str) -> Collection:
+    try:
+        return storage.delete_folder(collection_id, folder_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.post("/{collection_id}/requests", response_model=Collection)
 def save_request(collection_id: str, body: SaveRequestInput) -> Collection:
-    req = SavedRequest(
+    req = CollectionItem(
         id=body.id or str(uuid.uuid4()),
         name=body.name,
+        is_folder=False,
         method=body.method,
         url=body.url,
         headers=body.headers,
         body=body.body,
     )
     try:
-        return storage.add_request(collection_id, req)
+        return storage.add_request(collection_id, req, body.parent_folder_id)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

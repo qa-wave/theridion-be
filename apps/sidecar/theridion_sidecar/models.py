@@ -1,8 +1,9 @@
 """Domain models shared across endpoints and storage.
 
-Pydantic models double as both the wire schema (FastAPI generates the
-OpenAPI for them) and the on-disk schema (we serialize directly with
-`.model_dump()`).
+The collection tree is a discriminated union of folders and requests
+through a single `CollectionItem` model with `is_folder`. Older files
+predating folders deserialize cleanly because `is_folder` defaults to
+False and `items` defaults to an empty list.
 """
 
 from __future__ import annotations
@@ -16,20 +17,32 @@ HttpMethod = Literal[
 ]
 
 
-class SavedRequest(BaseModel):
+class CollectionItem(BaseModel):
+    """Either a folder (is_folder=True, has child items) or a request."""
     id: str
     name: str
-    method: HttpMethod = "GET"
-    url: str
+    is_folder: bool = False
+    # Request-specific fields (populated when is_folder=False).
+    method: HttpMethod | None = None
+    url: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
     body: str | None = None
+    # Folder-specific field (populated when is_folder=True).
+    items: list["CollectionItem"] = Field(default_factory=list)
+
+
+CollectionItem.model_rebuild()
+
+
+# Back-compat alias used by the older /requests endpoint contract.
+SavedRequest = CollectionItem
 
 
 class Collection(BaseModel):
     id: str
     name: str
     version: int = 1
-    items: list[SavedRequest] = Field(default_factory=list)
+    items: list[CollectionItem] = Field(default_factory=list)
 
 
 class CollectionSummary(BaseModel):
@@ -39,15 +52,20 @@ class CollectionSummary(BaseModel):
     request_count: int
 
 
-# Request bodies for write endpoints
 class CreateCollectionInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
 
 
+class CreateFolderInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    parent_folder_id: str | None = None
+
+
 class SaveRequestInput(BaseModel):
-    id: str | None = None  # server assigns if omitted
+    id: str | None = None
     name: str = Field(..., min_length=1, max_length=200)
     method: HttpMethod = "GET"
     url: str = Field(..., min_length=1)
     headers: dict[str, str] = Field(default_factory=dict)
     body: str | None = None
+    parent_folder_id: str | None = None
