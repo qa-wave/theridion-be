@@ -259,6 +259,14 @@ cd apps/desktop/src-tauri && cargo test --lib
 Commitů na `main` (nejnovější nahoře):
 
 ```
+d554f4e WebSocket proxy endpoint for bidirectional message relay
+dec72a1 GraphQL native: execute + introspection endpoints
+42c2162 Collection runner: execute all requests with assertion evaluation
+17f5c14 Declarative test assertions with visual pass/fail results
+3f2174d History panel: in-session request log with replay
+8f2dc59 Timing breakdown + cookies tab in response panel
+5c8cbb8 Template functions: {{$timestamp}}, {{$uuid}}, {{$isoDate}}, {{$randomInt}}
+7463933 Inline rename for collections, folders, and requests
 961a6fd Cookie jar: persist cookies across requests per environment
 5251dca cURL import + Copy as cURL: bidirectional conversion
 ffa0be7 Auth helpers: Bearer, Basic, API Key with env-var substitution
@@ -278,41 +286,44 @@ cf401e1 Sidecar polish: diagnostics endpoint + PID tracking
 3a10090 Initial scaffold: Tauri shell + Python FastAPI sidecar
 ```
 
-✅ Tauri shell + Python sidecar walking skeleton  
-✅ 3-pane UI (sidebar / request / response) + tab strip  
-✅ Logo + ikona set (Tangleweb mesh)  
-✅ File-based collections store s folder hierarchií  
-✅ Save-to picker (collection + name)  
-✅ Environment variables s `{{var}}` substitucí  
-✅ Monaco editor pro request/response body  
-✅ SOAP/WSDL inspect + execute (zeep)  
-✅ Playwright E2E suite (7 testů) izolovaný od dev sidecaru  
-✅ Sidecar diagnostics endpoint + PID file  
-✅ PyInstaller bundling + Tauri sidecar spawn + port handshake  
-✅ CLAUDE.md kontext pro další session  
+✅ Tauri shell + Python sidecar walking skeleton
+✅ 3-pane UI (sidebar / request / response) + tab strip
+✅ Logo + ikona set (Tangleweb mesh)
+✅ File-based collections store s folder hierarchií
+✅ Save-to picker (collection + name)
+✅ Environment variables s `{{var}}` substitucí
+✅ Monaco editor pro request/response body
+✅ SOAP/WSDL inspect + execute (zeep)
+✅ Playwright E2E suite (7 testů) izolovaný od dev sidecaru
+✅ Sidecar diagnostics endpoint + PID file
+✅ PyInstaller bundling + Tauri sidecar spawn + port handshake
+✅ CLAUDE.md kontext pro další session
 ✅ **Sprint 1 — Auth helpers** (Bearer, Basic, API Key) s `{{var}}`
-   substitucí přes env. (OAuth2, AWS SigV4, NTLM zatím ne.)  
-✅ **Sprint 1 — cURL import + "Copy as cURL"** bidirekcionálně  
-✅ **Sprint 1 — Cookies jar** per-environment persistence  
-🟡 **Sprint 1 — Inline rename + drag-drop** rozdělané (uncommitted
-   k 2026-05-09: `Sidebar.tsx`, `lib/sidecar.ts`, `storage.py`,
-   `api/collections.py` — `rename_collection`, `rename_item`,
-   `move_item`, Pencil ikona v Sidebar). Sprint 1 = ~85 % hotovo.  
+   substitucí přes env. (OAuth2, AWS SigV4, NTLM zatím ne.)
+✅ **Sprint 1 — cURL import + "Copy as cURL"** bidirekcionálně
+✅ **Sprint 1 — Cookies jar** per-environment persistence
+✅ **Sprint 1 — Inline rename** (double-click / pencil icon, Enter/Esc/blur)
+✅ **Sprint 2 — Tests/Asserts** (7 assertion types: status, response_time,
+   json_path, header_exists, header_equals, body_contains, body_regex)
+✅ **Sprint 2 — Collection runner** (POST /api/runner/{id}/run, sequential
+   execution s assertion evaluation, structured report)
+✅ **Sprint 3 — GraphQL** (execute + introspect endpoints, env substitution)
+✅ **Sprint 3 — WebSocket** (proxy endpoint /api/ws/proxy, bidirectional relay)
+✅ **Sprint 6 — Template functions** ({{$timestamp}}, {{$uuid}}, {{$isoDate}},
+   {{$randomInt}})
+✅ **Sprint 6 — Timing breakdown** (DNS/TCP/TLS/Transfer waterfall bars)
+✅ **Sprint 6 — History panel** (in-session, last 100, filter, replay)
+✅ **Sprint 6 — Cookies tab** v response panelu
 
-### Test status (před Sprint 1 commity, 2026-05-09)
+### Test status (lokálně, 2026-05-09)
 
 | Suite | Počet | Čas | Stav |
 |---|---|---|---|
-| Sidecar pytest | 35 | < 1 s | 🟢 |
+| Sidecar pytest | 67 | < 2 s | 🟢 |
 | Rust unit (sidecar handshake) | 3 | < 1 s | 🟢 |
 | Frontend typecheck (`pnpm typecheck`) | — | < 5 s | 🟢 |
-| Frontend build (`pnpm build`) | — | ~1 s | 🟢 (~225 KB JS / 68 KB gz) |
-| Playwright E2E | 7 | ~9 s | 🟢 |
-
-> ⚠️ Po Sprint 1 commitech (`ffa0be7`/`5251dca`/`961a6fd`) ani po
-> rozdělaných rename/move změnách nikdo testy ještě znovu nespustil.
-> **První akce CLI session:** projet test trio z [orientation
-> bloku](#než-cokoli-uděláš--orientace) a fixnout, co padlo.
+| Frontend build (`pnpm build`) | — | ~1 s | 🟢 (~249 KB JS / 73 KB gz) |
+| Playwright E2E | 7 | ~5 s | 🟢 |
 
 ### Co ještě nebylo v CI ověřeno
 
