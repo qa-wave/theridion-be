@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from theridion_sidecar import __version__
+from theridion_sidecar.api.collections import router as collections_router
 from theridion_sidecar.api.health import router as health_router
 from theridion_sidecar.api.requests import router as requests_router
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(requests_router)
+    app.include_router(collections_router)
     return app
 
 
