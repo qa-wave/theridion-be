@@ -363,6 +363,33 @@ cf401e1 Sidecar polish: diagnostics endpoint + PID tracking
    diff. Backend (`storage.rename_collection`/`rename_item`/`move_item`
    + endpointy) a Sidebar UI (Pencil ikona) jsou v práci.
 
+### Sprint 1.5 — **AI test generation přes Ollamu** (vlajková featura)
+
+> ⚠️ **Tohle uživatel chce, není to v původní roadmapě.** Plná
+> specifikace v [`docs/ai-test-generation.md`](./docs/ai-test-generation.md).
+
+**Pozor** — existující `apps/sidecar/theridion_sidecar/api/testgen.py`
+(26 KB, commit `≈ 0f38fdd` éra) je **spec-driven** (OpenAPI/WSDL →
+kategorizovaná kolekce heuristikou). Tahle nová featura je
+**komplementární**: bere live request + response z aktivního tabu
+a posílá je do **lokálního Ollama serveru** s modelem, který si
+uživatel vybral v Settings, a vrátí seznam asserts.
+
+Implementační pořadí (po 1 PR na krok):
+1. `settings.py` + `api/settings.py` — file-backed `~/.theridion/settings.json`
+2. `SettingsModal.tsx` + gear v status baru + ⌘`,`
+3. Ollama klient + `/api/ai/ping` + `/api/ai/models` (proxy na
+   `{base_url}/api/tags`)
+4. Prompt templates per kind (`health` / `smoke` / `regression`) +
+   `/api/ai/testgen` co volá Ollama s `format: "json"`
+5. AI-generate split-button v `RequestPanel` + `AITestPreviewModal`
+   s checkboxy + apply do `assertions[]` aktivního tabu
+6. E2E spec proti fake-Ollama serveru (tiny FastAPI handler v testu)
+
+Default model: ~`llama3.2`. Ollama je default, OpenAI/Anthropic
+později jako opt-in s privacy upozorněním že request/response body
+opouští loopback.
+
 ### Sprint 2 — automation (Playwright-style)
 5. **Tests/Asserts** — declarative DSL (status, JSON path, response
    time, schema). Ne JS sandbox, prozatím.
