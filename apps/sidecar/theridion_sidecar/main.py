@@ -35,6 +35,7 @@ from theridion_sidecar.api.runner import router as runner_router
 from theridion_sidecar.api.scripts import router as scripts_router
 from theridion_sidecar.api.soap import router as soap_router
 from theridion_sidecar.api.websocket import router as websocket_router
+from theridion_sidecar.api.multipart import router as multipart_router
 
 
 def create_app() -> FastAPI:
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(curl_router)
     app.include_router(websocket_router)
     app.include_router(diagnostics_router)
+    app.include_router(multipart_router)
     return app
 
 
