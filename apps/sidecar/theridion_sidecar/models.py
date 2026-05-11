@@ -60,11 +60,20 @@ CollectionItem.model_rebuild()
 SavedRequest = CollectionItem
 
 
+class CollectionVariable(BaseModel):
+    """A variable scoped to a collection."""
+
+    name: str
+    value: str
+    enabled: bool = True
+
+
 class Collection(BaseModel):
     id: str
     name: str
     version: int = 1
     items: list[CollectionItem] = Field(default_factory=list)
+    variables: list[CollectionVariable] = Field(default_factory=list)
 
 
 class CollectionSummary(BaseModel):

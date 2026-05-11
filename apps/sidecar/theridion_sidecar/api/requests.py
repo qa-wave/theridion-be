@@ -28,6 +28,8 @@ class ExecuteRequest(BaseModel):
     timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     follow_redirects: bool = True
     environment_id: str | None = None
+    client_cert: str | None = None
+    client_key: str | None = None
 
 
 class TimingBreakdown(BaseModel):
@@ -97,6 +99,13 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
     jar = cookies.load(req.environment_id) if req.environment_id else None
     httpx_cookies = cookies.to_httpx_cookies(jar) if jar and jar.cookies else None
 
+    # Build optional SSL client certificate tuple.
+    cert_pair: tuple[str, str] | None = None
+    if req.client_cert and req.client_key:
+        cert_pair = (req.client_cert, req.client_key)
+    elif req.client_cert:
+        cert_pair = (req.client_cert, req.client_cert)
+
     started = time.perf_counter()
     connect_done = started
     try:
@@ -106,6 +115,7 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
             timeout=req.timeout_seconds,
             follow_redirects=req.follow_redirects,
             cookies=httpx_cookies,
+            cert=cert_pair,
         ) as client:
             response = await client.request(
                 method=req.method,
