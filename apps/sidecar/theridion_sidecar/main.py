@@ -14,8 +14,10 @@ import socket
 import sys
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from theridion_sidecar import __version__, storage
 from theridion_sidecar.api.advanced import router as advanced_router
@@ -105,7 +107,6 @@ from theridion_sidecar.api.body_modes import router as body_modes_router
 from theridion_sidecar.api.cookie_manager import router as cookie_manager_router
 from theridion_sidecar.api.request_console import router as request_console_router
 from theridion_sidecar.api.visualizer import router as visualizer_router
-from theridion_sidecar.api.terminal import router as terminal_router
 from theridion_sidecar.api.keybindings import router as keybindings_router
 from theridion_sidecar.api.collection_docs import router as collection_docs_router
 from theridion_sidecar.api.api_catalog import router as api_catalog_router
@@ -117,7 +118,6 @@ from theridion_sidecar.api.project_encryption import router as project_encryptio
 from theridion_sidecar.api.secret_encryption import router as secret_encryption_router
 from theridion_sidecar.api.secret_managers import router as secret_managers_router
 from theridion_sidecar.api.pac_proxy import router as pac_proxy_router
-from theridion_sidecar.api.npm_loader import router as npm_loader_router
 from theridion_sidecar.api.cookie_scripting import router as cookie_scripting_router
 from theridion_sidecar.api.groovy_engine import router as groovy_engine_router
 from theridion_sidecar.api.junit_reporter import router as junit_reporter_router
@@ -131,6 +131,29 @@ from theridion_sidecar.api.composite_project import router as composite_project_
 from theridion_sidecar.api.conversational_ai import router as conversational_ai_router
 from theridion_sidecar.api.vscode_api import router as vscode_api_router
 from theridion_sidecar.api.amf_protocol import router as amf_protocol_router
+
+
+class _TokenAuthMiddleware(BaseHTTPMiddleware):
+    """Reject requests without a valid X-Theridion-Token header.
+
+    Only active when THERIDION_TOKEN env var is set.  /api/health is
+    exempt so liveness probes keep working.
+    """
+
+    def __init__(self, app: FastAPI, token: str) -> None:  # type: ignore[override]
+        super().__init__(app)
+        self._token = token
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        if request.url.path == "/api/health":
+            return await call_next(request)
+        provided = request.headers.get("X-Theridion-Token", "")
+        if provided != self._token:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "invalid or missing X-Theridion-Token"},
+            )
+        return await call_next(request)
 
 
 def create_app() -> FastAPI:
@@ -157,6 +180,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    _token = os.environ.get("THERIDION_TOKEN")
+    if _token:
+        app.add_middleware(_TokenAuthMiddleware, token=_token)
 
     app.include_router(ai_router)
     app.include_router(health_router)
@@ -245,7 +272,6 @@ def create_app() -> FastAPI:
     app.include_router(cookie_manager_router)
     app.include_router(request_console_router)
     app.include_router(visualizer_router)
-    app.include_router(terminal_router)
     app.include_router(keybindings_router)
     app.include_router(collection_docs_router)
     app.include_router(api_catalog_router)
@@ -257,7 +283,6 @@ def create_app() -> FastAPI:
     app.include_router(secret_encryption_router)
     app.include_router(secret_managers_router)
     app.include_router(pac_proxy_router)
-    app.include_router(npm_loader_router)
     app.include_router(cookie_scripting_router)
     app.include_router(groovy_engine_router)
     app.include_router(junit_reporter_router)
