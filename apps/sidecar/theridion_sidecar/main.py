@@ -30,6 +30,7 @@ from theridion_sidecar.api.cookies import router as cookies_router
 from theridion_sidecar.api.curl import router as curl_router
 from theridion_sidecar.api.diagnostics import router as diagnostics_router
 from theridion_sidecar.api.envdiff import router as envdiff_router
+from theridion_sidecar.api.examples import router as examples_router
 from theridion_sidecar.api.environments import router as environments_router
 from theridion_sidecar.api.extras import router as extras_router
 from theridion_sidecar.api.favorites import router as favorites_router
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(workspace_router)
     app.include_router(schema_router)
     app.include_router(envdiff_router)
+    app.include_router(examples_router)
     app.include_router(favorites_router)
     app.include_router(batch_router)
     app.include_router(response_trends_router)
