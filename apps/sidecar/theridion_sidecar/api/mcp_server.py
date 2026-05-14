@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from .. import environments, storage
 from ..assertions import Assertion, ResponseData, evaluate_all
-from ..soap import inspect_wsdl
+from ..healing import heal
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
@@ -45,7 +45,10 @@ class McpInvokeOutput(BaseModel):
 _TOOLS = [
     McpTool(
         name="execute_request",
-        description="Execute an HTTP request and return the response",
+        description=(
+            "Execute an HTTP request and return the response. "
+            "Supports GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS."
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -76,12 +79,12 @@ _TOOLS = [
     ),
     McpTool(
         name="list_collections",
-        description="List all collections with their names and request counts",
+        description="List all saved API collections with their request counts",
         input_schema={"type": "object", "properties": {}},
     ),
     McpTool(
         name="get_collection",
-        description="Get a collection by ID including all its requests and folders",
+        description="Get full details of a collection including all requests and folders",
         input_schema={
             "type": "object",
             "properties": {
@@ -92,7 +95,10 @@ _TOOLS = [
     ),
     McpTool(
         name="run_collection",
-        description="Run all requests in a collection sequentially and return results",
+        description=(
+            "Run all requests in a collection sequentially and return "
+            "results with assertion outcomes"
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -151,40 +157,99 @@ _TOOLS = [
     ),
     McpTool(
         name="list_environments",
-        description="List all environments with variable counts",
+        description="List all saved environments with their variable counts",
         input_schema={"type": "object", "properties": {}},
     ),
     McpTool(
-        name="inspect_wsdl",
-        description="Inspect a WSDL document and return its services and operations",
+        name="create_request",
+        description="Save a new request to an existing collection",
         input_schema={
             "type": "object",
             "properties": {
-                "wsdl_url": {
+                "collection_id": {"type": "string", "description": "Collection UUID"},
+                "name": {"type": "string", "description": "Human-readable request name"},
+                "method": {
                     "type": "string",
-                    "description": "URL or file path to the WSDL document",
+                    "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
                 },
-            },
-            "required": ["wsdl_url"],
-        },
-    ),
-    McpTool(
-        name="graphql_introspect",
-        description="Introspect a GraphQL endpoint and return its schema types",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "GraphQL endpoint URL",
-                },
+                "url": {"type": "string", "description": "Full URL for the request"},
                 "headers": {
                     "type": "object",
                     "additionalProperties": {"type": "string"},
                     "default": {},
                 },
+                "body": {"type": ["string", "null"], "default": None},
             },
-            "required": ["url"],
+            "required": ["collection_id", "name", "method", "url"],
+        },
+    ),
+    McpTool(
+        name="inspect_api",
+        description=(
+            "Discover and inspect an API by checking for OpenAPI/Swagger "
+            "specs and probing common endpoints"
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "type": "string",
+                    "description": "Base URL of the API to inspect",
+                },
+            },
+            "required": ["base_url"],
+        },
+    ),
+    McpTool(
+        name="generate_assertions",
+        description=(
+            "Suggest test assertions for an API response. Returns a list "
+            "of assertion objects that can be added to a request."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "response_status": {"type": "integer", "description": "HTTP status code"},
+                "response_body": {"type": "string", "description": "Response body text"},
+                "response_headers": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "default": {},
+                },
+            },
+            "required": ["response_status", "response_body"],
+        },
+    ),
+    McpTool(
+        name="heal_assertion",
+        description=(
+            "When an assertion fails, suggest a fix based on the actual "
+            "response. Uses fuzzy matching to find renamed/moved fields."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "assertion_type": {"type": "string", "description": "Assertion type (e.g. json_path)"},
+                "assertion_path": {"type": "string", "description": "The path that failed"},
+                "assertion_expected": {"type": "string", "description": "Expected value"},
+                "response_body": {"type": "string", "description": "Actual response body"},
+            },
+            "required": ["assertion_type", "assertion_path", "assertion_expected", "response_body"],
+        },
+    ),
+    McpTool(
+        name="compare_responses",
+        description=(
+            "Compare two API response bodies and return the differences. "
+            "Useful for regression testing."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "response_a": {"type": "string", "description": "First response body (JSON)"},
+                "response_b": {"type": "string", "description": "Second response body (JSON)"},
+            },
+            "required": ["response_a", "response_b"],
         },
     ),
 ]
@@ -223,10 +288,16 @@ async def _dispatch(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         return _evaluate_assertions(args)
     elif tool == "list_environments":
         return _list_environments()
-    elif tool == "inspect_wsdl":
-        return _inspect_wsdl(args)
-    elif tool == "graphql_introspect":
-        return await _graphql_introspect(args)
+    elif tool == "create_request":
+        return _create_request(args)
+    elif tool == "inspect_api":
+        return await _inspect_api(args)
+    elif tool == "generate_assertions":
+        return _generate_assertions(args)
+    elif tool == "heal_assertion":
+        return _heal_assertion(args)
+    elif tool == "compare_responses":
+        return _compare_responses(args)
     else:
         raise ValueError(f"No dispatch handler for tool: {tool}")
 
@@ -296,18 +367,61 @@ def _list_environments() -> dict[str, Any]:
     return {"environments": [s.model_dump(mode="json") for s in summaries]}
 
 
-def _inspect_wsdl(args: dict[str, Any]) -> dict[str, Any]:
-    summary = inspect_wsdl(args["wsdl_url"])
-    return summary.model_dump(mode="json")
+def _create_request(args: dict[str, Any]) -> dict[str, Any]:
+    import uuid as _uuid
 
+    from ..models import CollectionItem
 
-async def _graphql_introspect(args: dict[str, Any]) -> dict[str, Any]:
-    from .graphql import IntrospectInput, introspect
-
-    result = await introspect(
-        IntrospectInput(
-            url=args["url"],
-            headers=args.get("headers", {}),
-        )
+    coll = storage.get(args["collection_id"])
+    if coll is None:
+        raise ValueError(f"Collection {args['collection_id']} not found")
+    item = CollectionItem(
+        id=str(_uuid.uuid4()),
+        name=args["name"],
+        method=args["method"],
+        url=args["url"],
+        headers=args.get("headers", {}),
+        body=args.get("body"),
     )
-    return result.model_dump(mode="json")
+    updated = storage.add_request(args["collection_id"], item)
+    return {"id": item.id, "name": item.name, "collection": updated.name}
+
+
+async def _inspect_api(args: dict[str, Any]) -> dict[str, Any]:
+    from ..mcp_server_v2 import inspect_api as _inspect
+
+    return await _inspect(args["base_url"])
+
+
+def _generate_assertions(args: dict[str, Any]) -> dict[str, Any]:
+    from ..mcp_server_v2 import generate_assertions as _gen
+
+    result = _gen(
+        response_status=args["response_status"],
+        response_body=args["response_body"],
+        response_headers=args.get("response_headers"),
+    )
+    return {"assertions": result}
+
+
+def _heal_assertion(args: dict[str, Any]) -> dict[str, Any]:
+    assertion = Assertion(
+        type=args["assertion_type"],
+        path=args["assertion_path"],
+        expected=args["assertion_expected"],
+        operator="eq",
+    )
+    output = heal(assertion, args["response_body"])
+    return {
+        "candidates": [
+            {"path": c.suggested_path, "confidence": c.confidence, "reason": c.reason}
+            for c in output.candidates
+        ],
+        "auto_fixable": output.auto_fixable,
+    }
+
+
+def _compare_responses(args: dict[str, Any]) -> dict[str, Any]:
+    from ..mcp_server_v2 import compare_responses as _compare
+
+    return _compare(args["response_a"], args["response_b"])
