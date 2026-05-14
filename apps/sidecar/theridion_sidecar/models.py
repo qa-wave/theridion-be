@@ -70,6 +70,7 @@ class CollectionItem(BaseModel):
     auth: AuthConfig | None = None
     assertions: list[Assertion] = Field(default_factory=list)
     pre_request_script: str | None = None
+    notes: str | None = None
     examples: list[RequestExample] = Field(default_factory=list)
     captures: list[RequestCapture] = Field(default_factory=list)
     # Folder-specific field (populated when is_folder=True).
@@ -125,6 +126,7 @@ class SaveRequestInput(BaseModel):
     auth: AuthConfig | None = None
     assertions: list[Assertion] = Field(default_factory=list)
     pre_request_script: str | None = None
+    notes: str | None = None
     examples: list[RequestExample] = Field(default_factory=list)
     captures: list[RequestCapture] = Field(default_factory=list)
     parent_folder_id: str | None = None
