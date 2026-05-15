@@ -70,6 +70,7 @@ class CollectionItem(BaseModel):
     auth: AuthConfig | None = None
     assertions: list[Assertion] = Field(default_factory=list)
     pre_request_script: str | None = None
+    post_response_script: str | None = None
     notes: str | None = None
     examples: list[RequestExample] = Field(default_factory=list)
     captures: list[RequestCapture] = Field(default_factory=list)
@@ -126,6 +127,7 @@ class SaveRequestInput(BaseModel):
     auth: AuthConfig | None = None
     assertions: list[Assertion] = Field(default_factory=list)
     pre_request_script: str | None = None
+    post_response_script: str | None = None
     notes: str | None = None
     examples: list[RequestExample] = Field(default_factory=list)
     captures: list[RequestCapture] = Field(default_factory=list)
