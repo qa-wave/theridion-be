@@ -358,7 +358,7 @@ def test_proxy_recorder_captures_har_entries(client: TestClient) -> None:
 def test_tls_inspector_reports_certificate_fields(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from theridion_sidecar.api import advanced
+    from theridion_sidecar.api.advanced import security_ops
 
     class FakeSocket:
         def __enter__(self) -> FakeSocket:
@@ -395,11 +395,11 @@ def test_tls_inspector_reports_certificate_fields(
             return FakeTls()
 
     monkeypatch.setattr(
-        advanced.socket,
+        security_ops.socket,
         "create_connection",
         lambda *_args, **_kwargs: FakeSocket(),
     )
-    monkeypatch.setattr(advanced.ssl, "create_default_context", lambda: FakeContext())
+    monkeypatch.setattr(security_ops.ssl, "create_default_context", lambda: FakeContext())
 
     inspected = client.post(
         "/api/advanced/tls/inspect",
