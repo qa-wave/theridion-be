@@ -143,6 +143,8 @@ from theridion_sidecar.api.api_changelog import router as api_changelog_router
 from theridion_sidecar.api.regression_gen import router as regression_gen_router
 from theridion_sidecar.api.dependency_resolver import router as dependency_resolver_router
 from theridion_sidecar.api.history import router as history_router
+from theridion_sidecar.api.openapi_import import router as openapi_import_router
+from theridion_sidecar.api.pipeline import router as pipeline_router
 from theridion_sidecar.api.response_compare import router as response_compare_router
 
 
@@ -321,7 +323,9 @@ def create_app() -> FastAPI:
     app.include_router(regression_gen_router)
     app.include_router(dependency_resolver_router)
     app.include_router(response_compare_router)
+    app.include_router(pipeline_router)
     app.include_router(history_router)
+    app.include_router(openapi_import_router)
     return app
 
 
