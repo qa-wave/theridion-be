@@ -45,6 +45,8 @@ from theridion_sidecar.api.kafka import router as kafka_router
 from theridion_sidecar.api.load_runner import router as load_runner_router
 from theridion_sidecar.api.loadtest import router as loadtest_router
 from theridion_sidecar.api.mock import router as mock_router
+from theridion_sidecar.api.mock_record import replay_router as mock_replay_router
+from theridion_sidecar.api.mock_record import router as mock_record_router
 from theridion_sidecar.api.multipart import router as multipart_router
 from theridion_sidecar.api.oauth2 import router as oauth2_router
 from theridion_sidecar.api.projects import router as projects_router
@@ -145,6 +147,8 @@ from theridion_sidecar.api.dependency_resolver import router as dependency_resol
 from theridion_sidecar.api.history import router as history_router
 from theridion_sidecar.api.openapi_import import router as openapi_import_router
 from theridion_sidecar.api.pipeline import router as pipeline_router
+from theridion_sidecar.api.certificates import router as certificates_router
+from theridion_sidecar.api.reports import router as reports_router
 from theridion_sidecar.api.response_compare import router as response_compare_router
 
 
@@ -223,6 +227,8 @@ def create_app() -> FastAPI:
     app.include_router(projects_router)
     app.include_router(grpc_router)
     app.include_router(mock_router)
+    app.include_router(mock_record_router)
+    app.include_router(mock_replay_router)
     app.include_router(chaining_router)
     app.include_router(loadtest_router)
     app.include_router(load_runner_router)
@@ -326,6 +332,8 @@ def create_app() -> FastAPI:
     app.include_router(pipeline_router)
     app.include_router(history_router)
     app.include_router(openapi_import_router)
+    app.include_router(certificates_router)
+    app.include_router(reports_router)
     return app
 
 
