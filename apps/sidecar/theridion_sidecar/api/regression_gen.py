@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .. import storage
-from ..environments import load_env, substitute
+from ..environments import get as get_env, substitute
 
 router = APIRouter(prefix="/api/test", tags=["regression"])
 
@@ -89,7 +89,6 @@ def _generate_assertions(status: int, body: str, content_type: str, elapsed_ms: 
                     path=f"$.{key}",
                     operator="exists",
                 ))
-                # Array length assertions
                 if isinstance(data[key], list):
                     assertions.append(GeneratedAssertion(
                         type="json_path",
@@ -115,11 +114,7 @@ async def generate_regression(collection_id: str, body: GenerateInput) -> Regres
     if coll is None:
         return RegressionOutput(collection_name="unknown")
 
-    env_vars: dict[str, str] = {}
-    if body.environment_id:
-        env = load_env(body.environment_id)
-        if env:
-            env_vars = {v.key: v.value for v in env.variables}
+    env = get_env(body.environment_id) if body.environment_id else None
 
     items = _flatten_requests([it.model_dump() for it in coll.items])
     result_assertions: list[RequestAssertions] = []
@@ -127,7 +122,7 @@ async def generate_regression(collection_id: str, body: GenerateInput) -> Regres
 
     async with httpx.AsyncClient(timeout=30) as client:
         for item in items:
-            url = substitute(item.get("url", ""), env_vars)
+            url = substitute(item.get("url", ""), env)
             method = item.get("method", "GET")
             name = item.get("name", url)
             req_id = item.get("id", "")
@@ -141,7 +136,7 @@ async def generate_regression(collection_id: str, body: GenerateInput) -> Regres
                         headers_raw = json.loads(headers_raw)
                     except Exception:
                         headers_raw = {}
-                headers_sub = {k: substitute(str(v), env_vars) for k, v in headers_raw.items()}
+                headers_sub = {k: substitute(str(v), env) for k, v in headers_raw.items()}
                 start = time.monotonic()
                 resp = await client.request(method, url, headers=headers_sub, timeout=15)
                 elapsed = (time.monotonic() - start) * 1000

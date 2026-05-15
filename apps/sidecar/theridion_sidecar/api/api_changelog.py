@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .. import storage
-from ..environments import load_env, substitute
+from ..environments import get as get_env, substitute
 from .timeline import _path_for as timeline_path_for, RequestTimeline
 
 router = APIRouter(prefix="/api/changelog", tags=["changelog"])
@@ -67,14 +67,12 @@ def _diff_json(old: Any, new: Any, prefix: str = "$") -> list[FieldChange]:
                 changes.extend(_diff_json(old[key], new[key], child_path))
     elif isinstance(old, list) and isinstance(new, list):
         if len(old) > 0 and len(new) > 0:
-            # Compare structure of first element only
             changes.extend(_diff_json(old[0], new[0], f"{prefix}[0]"))
         elif len(old) == 0 and len(new) > 0:
             changes.append(FieldChange(path=prefix, type="added", new_value=f"array({len(new)} items)"))
         elif len(old) > 0 and len(new) == 0:
             changes.append(FieldChange(path=prefix, type="removed", old_value=f"array({len(old)} items)"))
     else:
-        # Scalar comparison — only report type changes, not value changes
         if type(old).__name__ != type(new).__name__:
             changes.append(FieldChange(
                 path=prefix,
@@ -109,11 +107,7 @@ async def detect_changes(body: DetectInput) -> ChangelogResult:
     if coll is None:
         return ChangelogResult(collection_name="unknown", timestamp=time.time())
 
-    env_vars: dict[str, str] = {}
-    if body.environment_id:
-        env = load_env(body.environment_id)
-        if env:
-            env_vars = {v.key: v.value for v in env.variables}
+    env = get_env(body.environment_id) if body.environment_id else None
 
     items = _flatten_requests([it.model_dump() for it in coll.items])
     entries: list[ChangelogEntry] = []
@@ -122,7 +116,7 @@ async def detect_changes(body: DetectInput) -> ChangelogResult:
 
     async with httpx.AsyncClient(timeout=30) as client:
         for item in items:
-            url = substitute(item.get("url", ""), env_vars)
+            url = substitute(item.get("url", ""), env)
             method = item.get("method", "GET")
             name = item.get("name", url)
             req_id = item.get("id", "")
@@ -148,7 +142,7 @@ async def detect_changes(body: DetectInput) -> ChangelogResult:
                         headers_raw = json.loads(headers_raw)
                     except Exception:
                         headers_raw = {}
-                headers_sub = {k: substitute(str(v), env_vars) for k, v in headers_raw.items()}
+                headers_sub = {k: substitute(str(v), env) for k, v in headers_raw.items()}
                 resp = await client.request(method, url, headers=headers_sub, timeout=15)
                 try:
                     current_json = resp.json()
