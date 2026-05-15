@@ -21,6 +21,7 @@ AssertionType = Literal[
     "header_equals",
     "body_contains",
     "body_regex",
+    "performance_budget",
 ]
 
 
@@ -130,6 +131,9 @@ def evaluate(assertion: Assertion, response: ResponseData) -> AssertionResult:
         elif assertion.type == "json_path":
             return _eval_json_path(assertion, response)
 
+        elif assertion.type == "performance_budget":
+            return _eval_performance_budget(assertion, response)
+
         else:
             return AssertionResult(
                 assertion=assertion,
@@ -148,6 +152,72 @@ def evaluate_all(
     assertions: list[Assertion], response: ResponseData,
 ) -> list[AssertionResult]:
     return [evaluate(a, response) for a in assertions]
+
+
+def _eval_performance_budget(assertion: Assertion, response: ResponseData) -> AssertionResult:
+    """Evaluate a performance budget assertion.
+
+    Expected format: "time<500,size<10240"
+    Checks response time (ms) and body size (bytes) against budgets.
+    """
+    budget_str = assertion.expected.strip()
+    if not budget_str:
+        return AssertionResult(
+            assertion=assertion,
+            passed=False,
+            message="Empty performance budget",
+        )
+
+    failures: list[str] = []
+    checks: list[str] = []
+
+    for part in budget_str.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        # Parse "metric<value" or "metric>value"
+        match = re.match(r"^(time|size)\s*(<|>|<=|>=)\s*(\d+(?:\.\d+)?)$", part)
+        if not match:
+            failures.append(f"Invalid budget spec: '{part}'")
+            continue
+
+        metric, op, threshold_str = match.group(1), match.group(2), match.group(3)
+        threshold = float(threshold_str)
+
+        if metric == "time":
+            actual = response.elapsed_ms
+            label = f"time={actual:.0f}ms"
+        else:  # size
+            actual = float(len(response.body.encode("utf-8")))
+            label = f"size={actual:.0f}B"
+
+        passed_check = False
+        if op == "<":
+            passed_check = actual < threshold
+        elif op == ">":
+            passed_check = actual > threshold
+        elif op == "<=":
+            passed_check = actual <= threshold
+        elif op == ">=":
+            passed_check = actual >= threshold
+
+        if passed_check:
+            checks.append(f"{label} {op} {threshold_str}")
+        else:
+            failures.append(f"{label} not {op} {threshold_str}")
+
+    if failures:
+        return AssertionResult(
+            assertion=assertion,
+            passed=False,
+            message="Budget exceeded: " + "; ".join(failures),
+        )
+
+    return AssertionResult(
+        assertion=assertion,
+        passed=True,
+        message="Budget met: " + "; ".join(checks) if checks else "No budget constraints",
+    )
 
 
 def _eval_json_path(assertion: Assertion, response: ResponseData) -> AssertionResult:

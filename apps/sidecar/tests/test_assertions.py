@@ -348,6 +348,65 @@ def test_loose_eq_mismatch() -> None:
 # evaluate_all
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# performance_budget assertions
+# ---------------------------------------------------------------------------
+
+def test_performance_budget_time_pass() -> None:
+    r = evaluate(
+        Assertion(type="performance_budget", expected="time<500"),
+        _resp(elapsed_ms=200),
+    )
+    assert r.passed is True
+    assert "Budget met" in r.message
+
+
+def test_performance_budget_time_fail() -> None:
+    r = evaluate(
+        Assertion(type="performance_budget", expected="time<100"),
+        _resp(elapsed_ms=200),
+    )
+    assert r.passed is False
+    assert "Budget exceeded" in r.message
+
+
+def test_performance_budget_size_pass() -> None:
+    r = evaluate(
+        Assertion(type="performance_budget", expected="size<10240"),
+        _resp(body="small body"),
+    )
+    assert r.passed is True
+
+
+def test_performance_budget_size_fail() -> None:
+    big_body = "x" * 20000
+    r = evaluate(
+        Assertion(type="performance_budget", expected="size<10240"),
+        _resp(body=big_body),
+    )
+    assert r.passed is False
+
+
+def test_performance_budget_combined() -> None:
+    r = evaluate(
+        Assertion(type="performance_budget", expected="time<500,size<10240"),
+        _resp(elapsed_ms=100, body="ok"),
+    )
+    assert r.passed is True
+
+
+def test_performance_budget_empty() -> None:
+    r = evaluate(
+        Assertion(type="performance_budget", expected=""),
+        _resp(),
+    )
+    assert r.passed is False
+
+
+# ---------------------------------------------------------------------------
+# evaluate_all
+# ---------------------------------------------------------------------------
+
 def test_evaluate_all_mixed() -> None:
     assertions = [
         Assertion(type="status", expected="200"),
