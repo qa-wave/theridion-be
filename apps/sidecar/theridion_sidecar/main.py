@@ -150,6 +150,7 @@ from theridion_sidecar.api.pipeline import router as pipeline_router
 from theridion_sidecar.api.certificates import router as certificates_router
 from theridion_sidecar.api.reports import router as reports_router
 from theridion_sidecar.api.response_compare import router as response_compare_router
+from theridion_sidecar.api.retry import router as retry_router
 
 
 class _TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -334,6 +335,7 @@ def create_app() -> FastAPI:
     app.include_router(openapi_import_router)
     app.include_router(certificates_router)
     app.include_router(reports_router)
+    app.include_router(retry_router)
     return app
 
 
