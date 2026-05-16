@@ -74,6 +74,7 @@ class CollectionItem(BaseModel):
     notes: str | None = None
     examples: list[RequestExample] = Field(default_factory=list)
     captures: list[RequestCapture] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     # Folder-specific field (populated when is_folder=True).
     items: list[CollectionItem] = Field(default_factory=list)
 
