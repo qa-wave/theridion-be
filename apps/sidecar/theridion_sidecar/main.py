@@ -25,6 +25,7 @@ from theridion_sidecar.api.apidocs import router as apidocs_router
 from theridion_sidecar.api.batchrunner import router as batch_router
 from theridion_sidecar.api.ai import router as ai_router
 from theridion_sidecar.api.assertions import router as assertions_router
+from theridion_sidecar.api.assertion_suggest import router as assertion_suggest_router
 from theridion_sidecar.api.chaining import router as chaining_router
 from theridion_sidecar.api.codegen import router as codegen_router
 from theridion_sidecar.api.collections import router as collections_router
@@ -78,6 +79,7 @@ from theridion_sidecar.api.loadtest_compare import router as loadtest_compare_ro
 from theridion_sidecar.api.flow_graph import router as flow_graph_router
 from theridion_sidecar.api.retry_tester import router as retry_tester_router
 from theridion_sidecar.api.ratelimit_detect import router as ratelimit_detect_router
+from theridion_sidecar.api.rate_limit_detector import router as rate_limit_detector_router
 from theridion_sidecar.api.idempotency_check import router as idempotency_check_router
 from theridion_sidecar.api.pagination_walker import router as pagination_walker_router
 from theridion_sidecar.api.contract_drift import router as contract_drift_router
@@ -154,6 +156,7 @@ from theridion_sidecar.api.body_diff import router as body_diff_router
 from theridion_sidecar.api.response_compare import router as response_compare_router
 from theridion_sidecar.api.retry import router as retry_router
 from theridion_sidecar.api.doc_generator import router as doc_generator_router
+from theridion_sidecar.api.snippets import router as snippets_router
 
 
 class _TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -213,6 +216,7 @@ def create_app() -> FastAPI:
     app.include_router(requests_router)
     app.include_router(codegen_router)
     app.include_router(assertions_router)
+    app.include_router(assertion_suggest_router)
     app.include_router(runner_router)
     app.include_router(scripts_router)
     app.include_router(importer_router)
@@ -266,6 +270,7 @@ def create_app() -> FastAPI:
     app.include_router(flow_graph_router)
     app.include_router(retry_tester_router)
     app.include_router(ratelimit_detect_router)
+    app.include_router(rate_limit_detector_router)
     app.include_router(idempotency_check_router)
     app.include_router(pagination_walker_router)
     app.include_router(contract_drift_router)
@@ -342,6 +347,7 @@ def create_app() -> FastAPI:
     app.include_router(retry_router)
     app.include_router(body_diff_router)
     app.include_router(doc_generator_router)
+    app.include_router(snippets_router)
     return app
 
 
