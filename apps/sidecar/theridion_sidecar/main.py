@@ -163,6 +163,9 @@ from theridion_sidecar.api.golden_files import router as golden_files_router
 from theridion_sidecar.api.snippets import router as snippets_router
 from theridion_sidecar.api.cli_runner import router as cli_runner_router
 from theridion_sidecar.api.request_diff import router as request_diff_router
+from theridion_sidecar.api.tags import router as tags_router
+from theridion_sidecar.api.collection_stats import router as collection_stats_router
+from theridion_sidecar.api.header_insights import router as header_insights_router
 
 
 class _TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -360,6 +363,9 @@ def create_app() -> FastAPI:
     app.include_router(golden_files_router)
     app.include_router(cli_runner_router)
     app.include_router(request_diff_router)
+    app.include_router(tags_router)
+    app.include_router(collection_stats_router)
+    app.include_router(header_insights_router)
     return app
 
 
