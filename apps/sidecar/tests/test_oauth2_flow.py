@@ -40,6 +40,15 @@ def reset_callback_state():
             pass
         _cb.server = None
     _cb.received = True  # Signal thread to stop
+    import time
+    # Give thread a moment to exit, then reset state cleanly
+    if _cb.thread is not None and _cb.thread.is_alive():
+        _cb.thread.join(timeout=2)
+    _cb.thread = None
+    _cb.received = False
+    _cb.code = None
+    _cb.state = None
+    _cb.error = None
 
 
 class TestPKCEGeneration:
