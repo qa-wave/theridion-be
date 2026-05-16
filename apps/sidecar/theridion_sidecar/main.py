@@ -166,6 +166,8 @@ from theridion_sidecar.api.request_diff import router as request_diff_router
 from theridion_sidecar.api.tags import router as tags_router
 from theridion_sidecar.api.collection_stats import router as collection_stats_router
 from theridion_sidecar.api.header_insights import router as header_insights_router
+from theridion_sidecar.api.body_search import router as body_search_router
+from theridion_sidecar.api.template_engine import router as template_engine_router
 
 
 class _TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -366,6 +368,8 @@ def create_app() -> FastAPI:
     app.include_router(tags_router)
     app.include_router(collection_stats_router)
     app.include_router(header_insights_router)
+    app.include_router(body_search_router)
+    app.include_router(template_engine_router)
     return app
 
 
