@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+import logging
 import time
 from typing import Literal
 
@@ -12,6 +14,8 @@ from pydantic import BaseModel, Field
 from .. import cookies, environments, storage
 from ..assertions import AssertionResult, ResponseData, evaluate_all
 from ..models import CollectionItem
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/runner", tags=["runner"])
 
@@ -162,7 +166,7 @@ async def run_collection(collection_id: str, body: RunInput) -> RunCollectionOut
             ))
             total_elapsed += elapsed
 
-    return RunCollectionOutput(
+    output = RunCollectionOutput(
         collection_id=coll.id,
         collection_name=coll.name,
         results=results,
@@ -174,6 +178,44 @@ async def run_collection(collection_id: str, body: RunInput) -> RunCollectionOut
         failed_assertions=total_a_failed,
         total_elapsed_ms=round(total_elapsed, 2),
     )
+
+    # Emit cross-module events (fire-and-forget; never fail the runner).
+    _emit_run_events(output)
+
+    return output
+
+
+def _emit_run_events(output: RunCollectionOutput) -> None:
+    """Write cross-module event files for the run result."""
+    from .events import write_event
+
+    workspace = storage.home_dir()
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    # Always emit a run.completed event.
+    event_type = "run.completed"
+    if output.failed_requests > 0 or output.failed_assertions > 0:
+        event_type = "test.failed"
+
+    summary = (
+        f"{output.collection_name}: "
+        f"{output.successful_requests}/{output.total_requests} passed, "
+        f"{output.passed_assertions}/{output.total_assertions} assertions OK"
+    )
+    try:
+        write_event(workspace, {
+            "version": "1",
+            "type": event_type,
+            "source": "runner",
+            "timestamp": ts,
+            "context": {
+                "collection_id": output.collection_id,
+                "summary": summary,
+            },
+            "actions": [],
+        })
+    except Exception as exc:
+        _log.warning("event write failed (non-critical): %s", exc)
 
 
 class RunWithTraceOutput(BaseModel):

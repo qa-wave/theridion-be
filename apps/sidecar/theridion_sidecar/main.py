@@ -174,6 +174,8 @@ from theridion_sidecar.api.body_search import router as body_search_router
 from theridion_sidecar.api.template_engine import router as template_engine_router
 from theridion_sidecar.api.camel import router as camel_router
 from theridion_sidecar.api.camel_runner import router as camel_runner_router
+from theridion_sidecar.api.events import router as events_router
+from theridion_sidecar.api.silk import router as silk_router
 
 
 _EXEMPT_PATHS = {"/api/health", "/api/diagnostics"}
@@ -397,6 +399,8 @@ def create_app() -> FastAPI:
     app.include_router(template_engine_router)
     app.include_router(camel_router)
     app.include_router(camel_runner_router)
+    app.include_router(events_router)
+    app.include_router(silk_router)
     return app
 
 
