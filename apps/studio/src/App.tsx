@@ -73,6 +73,7 @@ import { ActivityBar, type AppMode } from "./components/ActivityBar";
 import { ToastContainer, type Toast } from "./components/Toast";
 import { EventToastContainer } from "./components/EventToast";
 import { ReleaseCenterModal } from "./components/ReleaseCenterModal";
+import { SpinPanel } from "./components/SpinPanel";
 
 const APP_VERSION = "0.0.1";
 const ACTIVE_ENV_KEY = "theridion.activeEnvironmentId";
@@ -1240,6 +1241,12 @@ export default function App() {
             <p className="text-lg font-medium text-neutral-400">API Monitors</p>
             <p className="mt-1 text-sm">Coming soon</p>
           </div>
+        </div>
+      )}
+
+      {appMode === "spin" && (
+        <div className="col-span-2 overflow-hidden">
+          <SpinPanel />
         </div>
       )}
 

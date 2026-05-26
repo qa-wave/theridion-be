@@ -89,27 +89,32 @@ async def list_topics(body: KafkaConnectInput) -> TopicListOutput:
         raise HTTPException(status_code=502, detail=f"Kafka error: {e}") from e
 
 
+async def _produce_message(body: ProduceInput) -> ProduceOutput:
+    """Internal helper: produce a Kafka message without HTTP error wrapping."""
+    producer = AIOKafkaProducer(bootstrap_servers=body.bootstrap_servers)
+    await producer.start()
+    try:
+        kafka_headers = [(k, v.encode("utf-8")) for k, v in body.headers.items()]
+        result = await producer.send_and_wait(
+            body.topic,
+            key=body.key.encode("utf-8") if body.key else None,
+            value=body.value.encode("utf-8"),
+            headers=kafka_headers or None,
+        )
+        return ProduceOutput(
+            topic=result.topic,
+            partition=result.partition,
+            offset=result.offset,
+            timestamp=result.timestamp,
+        )
+    finally:
+        await producer.stop()
+
+
 @router.post("/produce", response_model=ProduceOutput)
 async def produce(body: ProduceInput) -> ProduceOutput:
     try:
-        producer = AIOKafkaProducer(bootstrap_servers=body.bootstrap_servers)
-        await producer.start()
-        try:
-            kafka_headers = [(k, v.encode("utf-8")) for k, v in body.headers.items()]
-            result = await producer.send_and_wait(
-                body.topic,
-                key=body.key.encode("utf-8") if body.key else None,
-                value=body.value.encode("utf-8"),
-                headers=kafka_headers or None,
-            )
-            return ProduceOutput(
-                topic=result.topic,
-                partition=result.partition,
-                offset=result.offset,
-                timestamp=result.timestamp,
-            )
-        finally:
-            await producer.stop()
+        return await _produce_message(body)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Kafka produce error: {e}") from e
 
