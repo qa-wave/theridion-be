@@ -4,21 +4,33 @@ Runs as a localhost-only HTTP server consumed by the Tauri shell over
 loopback. Port is selected dynamically and printed to stdout on startup so
 the parent process can read it; if THERIDION_PORT is set, that port is used
 instead (handy in dev).
+
+Security note: the auth token is written to ~/.theridion/sidecar-token
+(chmod 600) and NOT printed to stdout, to prevent token leakage via
+process listing or log aggregation.
 """
 
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import secrets
 import socket
+import stat
 import sys
+import traceback
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+
+logger = logging.getLogger(__name__)
 
 from theridion_sidecar import __version__, storage
 from theridion_sidecar.api.advanced import router as advanced_router
@@ -179,7 +191,7 @@ from theridion_sidecar.api.silk import router as silk_router
 from theridion_sidecar.api.spin import router as spin_router
 
 
-_EXEMPT_PATHS = {"/api/health", "/api/diagnostics"}
+_EXEMPT_PATHS = {"/api/health", "/api/diagnostics", "/api/readiness"}
 
 # Module-level token — generated once at import time so it survives
 # create_app() being called multiple times (e.g. in tests that use
@@ -220,13 +232,79 @@ class _TokenAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Backend-2/3: shared httpx connection pool with graceful shutdown."""
+    limits = httpx.Limits(
+        max_connections=100,
+        max_keepalive_connections=20,
+        keepalive_expiry=30.0,
+    )
+    transport = httpx.AsyncHTTPTransport(http2=True, limits=limits)
+    app.state.http_client = httpx.AsyncClient(
+        transport=transport,
+        timeout=30.0,
+        follow_redirects=True,
+    )
+    try:
+        yield
+    finally:
+        await app.state.http_client.aclose()
+
+
+def _token_file_path() -> "pathlib.Path":
+    """Return path to the token file: ~/.theridion/sidecar-token."""
+    import pathlib
+    return pathlib.Path.home() / ".theridion" / "sidecar-token"
+
+
+def _write_token_file(token: str) -> None:
+    """Write the sidecar token to file (chmod 600). Never raises."""
+    try:
+        token_path = _token_file_path()
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(token, encoding="utf-8")
+        token_path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+    except OSError as exc:
+        print(f"warning: could not write token file: {exc}", file=sys.stderr)
+
+
 def create_app() -> FastAPI:
+    _debug = bool(os.getenv("THERIDION_DEBUG"))
     app = FastAPI(
         title="Theridion sidecar",
         version=__version__,
-        docs_url="/docs",
-        redoc_url=None,
+        docs_url="/docs" if _debug else None,
+        redoc_url="/redoc" if _debug else None,
+        openapi_url="/openapi.json" if _debug else None,
+        lifespan=_lifespan,
     )
+
+    # --- Backend-1: Global exception handler ---
+    @app.exception_handler(Exception)
+    async def _global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.error(
+            "unhandled exception on %s %s: %s",
+            request.method,
+            request.url.path,
+            traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "internal server error"},
+        )
+
+    # --- Backend-8: /api/readiness endpoint ---
+    @app.get("/api/readiness", tags=["health"])
+    async def readiness() -> dict:
+        """Liveness/readiness probe — checks storage dir exists."""
+        home = storage.home_dir()
+        if not home.exists():
+            return JSONResponse(
+                status_code=503,
+                content={"status": "unavailable", "reason": "storage dir missing"},
+            )
+        return {"status": "ok", "storage": str(home)}
 
     # We only ever bind to 127.0.0.1, so any HTTP origin reaching us is
     # already loopback-only. Match any localhost / 127.0.0.1 port via
@@ -442,12 +520,18 @@ def main() -> None:
     port_env = os.environ.get("THERIDION_PORT")
     port = int(port_env) if port_env else _pick_free_port()
     _write_pid_file(port)
+
+    # SEC-002: Write token to file (chmod 600) — NOT printed to stdout.
+    # The Tauri parent reads it from ~/.theridion/sidecar-token after
+    # parsing the ready line for pid/port.
+    _write_token_file(_SIDECAR_TOKEN)
+
     # Print on a single line so the Tauri parent can parse it deterministically.
-    # Includes pid so a misbehaving instance can be killed without grep
-    # gymnastics.
+    # Includes pid so a misbehaving instance can be killed without grep gymnastics.
+    # NOTE: token is intentionally omitted from this line — see sidecar-token file.
     print(
         f"THERIDION_SIDECAR_READY pid={os.getpid()} port={port} "
-        f"token={_SIDECAR_TOKEN} home={storage.home_dir()}",
+        f"home={storage.home_dir()}",
         flush=True,
     )
     uvicorn.run(
@@ -456,6 +540,7 @@ def main() -> None:
         port=port,
         log_level="info",
         access_log=False,
+        timeout_graceful_shutdown=30,
     )
 
 

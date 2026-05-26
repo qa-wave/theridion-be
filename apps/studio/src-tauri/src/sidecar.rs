@@ -1,18 +1,23 @@
 //! Sidecar lifecycle: spawn the bundled Python binary, parse its ready
-//! line for the port number and auth token, and let the frontend ask for
-//! both via Tauri commands.
+//! line for the port number, read the auth token from the token file, and
+//! let the frontend ask for both via Tauri commands.
 //!
 //! The Python sidecar prints a single line on stdout when it's listening:
 //!
 //! ```text
-//! THERIDION_SIDECAR_READY pid=<n> port=<n> token=<token> home=<path>
+//! THERIDION_SIDECAR_READY pid=<n> port=<n> home=<path>
 //! ```
 //!
-//! We capture that line, store the port and token in app state, and expose
+//! The auth token is NOT in the ready line (SEC-002). Instead it is written
+//! to `~/.theridion/sidecar-token` (chmod 600) before the ready line is
+//! emitted. We read it from there after parsing the ready line.
+//!
+//! We store the port and token in app state and expose
 //! `get_sidecar_port` and `get_sidecar_token` as Tauri commands for the
 //! frontend to call at startup. If the sidecar dies, we surface a
 //! `sidecar://terminated` event so the UI can show a helpful message.
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -43,7 +48,9 @@ pub fn spawn(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 CommandEvent::Stdout(line) => {
                     let text = String::from_utf8_lossy(&line);
                     log::info!("[sidecar stdout] {}", text.trim_end());
-                    if let Some((port, token)) = parse_ready_line(&text) {
+                    if let Some(port) = parse_ready_line(&text) {
+                        // SEC-002: token is in ~/.theridion/sidecar-token, not stdout.
+                        let token = read_token_file().unwrap_or_default();
                         let state: State<SidecarState> = app_handle.state();
                         *state.port.lock().unwrap() = Some(port);
                         *state.token.lock().unwrap() = Some(token);
@@ -81,37 +88,61 @@ pub fn get_sidecar_token(state: State<'_, SidecarState>) -> Option<String> {
     state.token.lock().unwrap().clone()
 }
 
-/// Parse a sidecar ready line and return `(port, token)`.
+/// Parse a sidecar ready line and return the port.
 ///
 /// Expected format (field order is not significant):
 ///
 /// ```text
-/// THERIDION_SIDECAR_READY pid=42 port=8765 token=abc home=/tmp/x
+/// THERIDION_SIDECAR_READY pid=42 port=8765 home=/tmp/x
 /// ```
-fn parse_ready_line(line: &str) -> Option<(u16, String)> {
+///
+/// Note: token is no longer in the ready line (SEC-002). It is written
+/// to `~/.theridion/sidecar-token` (chmod 600) and read via
+/// `read_token_file()`.
+fn parse_ready_line(line: &str) -> Option<u16> {
     if !line.contains("THERIDION_SIDECAR_READY") {
         return None;
     }
-    let port = line
-        .split_whitespace()
+    line.split_whitespace()
         .find_map(|tok| tok.strip_prefix("port="))
-        .and_then(|v| v.parse::<u16>().ok())?;
-    let token = line
-        .split_whitespace()
-        .find_map(|tok| tok.strip_prefix("token="))
-        .map(str::to_owned)?;
-    Some((port, token))
+        .and_then(|v| v.parse::<u16>().ok())
+}
+
+/// Read the sidecar auth token from `~/.theridion/sidecar-token`.
+///
+/// Returns `None` if the file does not exist or cannot be read.
+fn read_token_file() -> Option<String> {
+    let path = token_file_path()?;
+    std::fs::read_to_string(&path)
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+}
+
+/// Return the path to `~/.theridion/sidecar-token`.
+fn token_file_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".theridion").join("sidecar-token"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::parse_ready_line;
 
+    // SEC-002: token is no longer in the ready line. The ready line now
+    // contains only pid, port, and home. Token is read from the token file.
+
     #[test]
     fn parses_a_well_formed_ready_line() {
+        let line = "THERIDION_SIDECAR_READY pid=42 port=8765 home=/tmp/x\n";
+        assert_eq!(parse_ready_line(line), Some(8765));
+    }
+
+    #[test]
+    fn parses_ready_line_with_legacy_token_field_still_present() {
+        // Backward compat: if an older sidecar still emits token= in the
+        // ready line, we still parse the port correctly (and ignore token).
         let line = "THERIDION_SIDECAR_READY pid=42 port=8765 token=abc123xyz home=/tmp/x\n";
-        let result = parse_ready_line(line);
-        assert_eq!(result, Some((8765, "abc123xyz".to_owned())));
+        assert_eq!(parse_ready_line(line), Some(8765));
     }
 
     #[test]
@@ -121,13 +152,13 @@ mod tests {
 
     #[test]
     fn returns_none_when_port_is_garbage() {
-        let line = "THERIDION_SIDECAR_READY pid=1 port=NaN token=tok\n";
+        let line = "THERIDION_SIDECAR_READY pid=1 port=NaN home=/tmp\n";
         assert_eq!(parse_ready_line(line), None);
     }
 
     #[test]
-    fn returns_none_when_token_is_missing() {
-        let line = "THERIDION_SIDECAR_READY pid=1 port=8765 home=/tmp\n";
+    fn returns_none_when_port_is_missing() {
+        let line = "THERIDION_SIDECAR_READY pid=1 home=/tmp\n";
         assert_eq!(parse_ready_line(line), None);
     }
 }

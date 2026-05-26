@@ -7,7 +7,7 @@ import time
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import cookies, environments, storage
@@ -135,7 +135,7 @@ def _apply_auth(
 
 
 @router.post("/execute", response_model=ExecuteResponse)
-async def execute(req: ExecuteRequest) -> ExecuteResponse:
+async def execute(req: ExecuteRequest, http_request: Request) -> ExecuteResponse:
     # Resolve {{var}} placeholders against the chosen environment, if any.
     env = environments.get(req.environment_id) if req.environment_id else None
     if req.environment_id and env is None:
@@ -184,27 +184,55 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
     # Set up timing collector for httpcore trace events.
     collector = _TimingCollector()
 
+    # Backend-2/3: use the shared lifespan-managed client when possible
+    # (no custom SSL). Per-request client is created only when custom SSL
+    # settings are needed (cert, ca_bundle, disabled verify).
+    _needs_custom_ssl = cert_pair is not None or ssl_verify is not True
+    shared_client: httpx.AsyncClient | None = getattr(
+        getattr(http_request.app, "state", None), "http_client", None
+    )
+    use_shared = not _needs_custom_ssl and shared_client is not None
+
     started = time.perf_counter()
     try:
-        transport = httpx.AsyncHTTPTransport(http2=True)
-        async with httpx.AsyncClient(
-            transport=transport,
-            timeout=req.timeout_seconds,
-            follow_redirects=req.follow_redirects,
-            cookies=httpx_cookies,
-            cert=cert_pair,
-            verify=ssl_verify,
-        ) as client:
-            request = client.build_request(
+        if use_shared:
+            # Shared pooled client — no context manager needed.
+            _client = shared_client
+            request = _client.build_request(  # type: ignore[union-attr]
                 method=req.method,
                 url=resolved_url,
                 headers=resolved_headers,
                 params=resolved_query or None,
                 content=resolved_body.encode("utf-8") if resolved_body is not None else None,
             )
-            # Inject trace callback via httpx/httpcore request extensions.
             request.extensions["trace"] = collector.trace
-            response = await client.send(request)
+            response = await _client.send(  # type: ignore[union-attr]
+                request,
+                follow_redirects=req.follow_redirects,
+                cookies=httpx_cookies,
+                auth=None,
+                timeout=req.timeout_seconds,
+            )
+        else:
+            # Per-request client with custom SSL settings.
+            transport = httpx.AsyncHTTPTransport(http2=True)
+            async with httpx.AsyncClient(
+                transport=transport,
+                timeout=req.timeout_seconds,
+                follow_redirects=req.follow_redirects,
+                cookies=httpx_cookies,
+                cert=cert_pair,
+                verify=ssl_verify,
+            ) as client:
+                request = client.build_request(
+                    method=req.method,
+                    url=resolved_url,
+                    headers=resolved_headers,
+                    params=resolved_query or None,
+                    content=resolved_body.encode("utf-8") if resolved_body is not None else None,
+                )
+                request.extensions["trace"] = collector.trace
+                response = await client.send(request)
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"transport error: {exc}") from exc
 
