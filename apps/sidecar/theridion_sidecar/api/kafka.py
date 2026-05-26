@@ -49,6 +49,7 @@ class ConsumeInput(BaseModel):
     group_id: str | None = None
     max_messages: int = Field(default=10, ge=1, le=100)
     timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    auto_offset_reset: str = Field(default="latest", pattern="^(latest|earliest)$")
 
 
 class ConsumedMessage(BaseModel):
@@ -120,7 +121,7 @@ async def consume(body: ConsumeInput) -> ConsumeOutput:
             body.topic,
             bootstrap_servers=body.bootstrap_servers,
             group_id=body.group_id or f"theridion-{int(time.time())}",
-            auto_offset_reset="latest",
+            auto_offset_reset=body.auto_offset_reset,
             enable_auto_commit=False,
         )
         await consumer.start()
