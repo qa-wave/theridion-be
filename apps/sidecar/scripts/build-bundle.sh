@@ -2,7 +2,7 @@
 # Build the PyInstaller bundle and stage it into the Tauri binaries dir
 # under the platform-specific name Tauri's externalBin resolver expects.
 #
-# Local dev:  pnpm --filter theridion-desktop sidecar:bundle
+# Local dev:  pnpm --filter theridion-studio sidecar:bundle
 # CI:         called from the desktop matrix job before `tauri build`.
 set -euo pipefail
 
