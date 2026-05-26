@@ -1,17 +1,30 @@
-"""Tests for the safe mini-interpreter in /api/scripts/execute-safe."""
+"""Tests for the safe mini-interpreter in /api/scripts/execute-safe,
+and the 410 Gone response for the removed Node.js subprocess endpoint.
+"""
 
 from __future__ import annotations
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from theridion_sidecar.main import app
+# Re-use the shared token constant from conftest so tests work when
+# THERIDION_TOKEN is set (the token middleware is active in all test apps).
+_TEST_TOKEN = "test-token-fixture"
 
 
 @pytest.fixture
-def client():
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    monkeypatch.setenv("THERIDION_TOKEN", _TEST_TOKEN)
+    import theridion_sidecar.main as _main
+    monkeypatch.setattr(_main, "_SIDECAR_TOKEN", _TEST_TOKEN)
+    app = _main.create_app()
     transport = ASGITransport(app=app)
-    return AsyncClient(transport=transport, base_url="http://test")
+    return AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"X-Theridion-Token": _TEST_TOKEN},
+    )
 
 
 @pytest.mark.anyio
@@ -184,3 +197,17 @@ async def test_semicolons_tolerated(client: AsyncClient) -> None:
     assert data["error"] is None
     assert data["variables"]["a"] == "1"
     assert data["logs"] == ["ok"]
+
+
+@pytest.mark.anyio
+async def test_nodejs_execute_returns_410(client: AsyncClient) -> None:
+    """POST /execute (Node.js subprocess) must return 410 Gone — P0 security."""
+    resp = await client.post("/api/scripts/execute", json={
+        "script": "require('fs').readFileSync('/etc/passwd', 'utf8')",
+        "variables": {},
+        "request": {},
+    })
+    assert resp.status_code == 410
+    body = resp.json()
+    assert "detail" in body
+    assert "removed" in body["detail"].lower() or "hardening" in body["detail"].lower()

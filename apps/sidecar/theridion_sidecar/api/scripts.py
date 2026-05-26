@@ -1,10 +1,8 @@
 """Pre-request / post-response script execution.
 
-Two modes:
-1. Node.js subprocess (POST /execute) — full JS sandbox via ``pm`` object.
-2. Safe mini-interpreter (POST /execute-safe) — no eval/exec, parses a
-   small command DSL line-by-line for lightweight automation without a
-   Node.js dependency.
+Safe mini-interpreter (POST /execute-safe) — no eval/exec, parses a
+small command DSL line-by-line for lightweight automation without any
+external runtime dependency.
 
 The safe interpreter supports:
 - ``set("key", value)`` — store a variable
@@ -15,17 +13,20 @@ The safe interpreter supports:
 
 Dot-notation access into the *context* dict is supported:
 ``response.status``, ``response.json.data.id``, etc.
+
+NOTE: The Node.js subprocess endpoint (POST /execute) was removed in
+Fáze 0 P0 security hardening — it allowed arbitrary code execution with
+full filesystem access. Use the safe DSL or template engine instead.
+See: docs/security/scripts-deprecation.md
 """
 
 from __future__ import annotations
 
-import json
 import re
-import subprocess
-import time
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
@@ -34,20 +35,6 @@ router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
-
-class ScriptInput(BaseModel):
-    script: str = Field(..., min_length=1)
-    variables: dict[str, str] = Field(default_factory=dict)
-    request: dict[str, Any] = Field(default_factory=dict)
-
-
-class ScriptOutput(BaseModel):
-    success: bool
-    variables: dict[str, str] = Field(default_factory=dict)
-    logs: list[str] = Field(default_factory=list)
-    error: str | None = None
-    duration_ms: float = 0
-
 
 class SafeScriptRequest(BaseModel):
     """Input for the safe mini-interpreter endpoint."""
@@ -360,93 +347,29 @@ def _eval_condition(raw: str, variables: dict[str, str], context: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# Node.js wrapper (existing)
-# ---------------------------------------------------------------------------
-
-WRAPPER_TEMPLATE = """
-const input = JSON.parse(process.argv[1]);
-const pm = {
-  variables: new Map(Object.entries(input.variables || {})),
-  request: input.request || {},
-  logs: [],
-  environment: {
-    get: (key) => pm.variables.get(key) || '',
-    set: (key, val) => pm.variables.set(key, String(val)),
-    has: (key) => pm.variables.has(key),
-  },
-};
-const console_log = console.log;
-console.log = (...args) => pm.logs.push(args.map(String).join(' '));
-try {
-  %SCRIPT%
-  const vars = {};
-  pm.variables.forEach((v, k) => { vars[k] = v; });
-  console_log(JSON.stringify({ success: true, variables: vars, logs: pm.logs }));
-} catch (e) {
-  console_log(JSON.stringify({ success: false, error: e.message, logs: pm.logs, variables: {} }));
-}
-"""
-
-
-# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
-@router.post("/execute", response_model=ScriptOutput)
-async def execute_script(body: ScriptInput) -> ScriptOutput:
-    """Execute a script in a Node.js subprocess (full JS sandbox)."""
-
-    wrapper = WRAPPER_TEMPLATE.replace("%SCRIPT%", body.script)
-    input_data = json.dumps({
-        "variables": body.variables,
-        "request": body.request,
-    })
-
-    started = time.perf_counter()
-    try:
-        result = subprocess.run(
-            ["node", "-e", wrapper, input_data],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=501,
-            detail="Node.js not found — pre-request scripts require Node.js installed",
-        )
-    except subprocess.TimeoutExpired:
-        return ScriptOutput(
-            success=False,
-            error="Script timed out (5s limit)",
-            duration_ms=5000,
-        )
-
-    elapsed = (time.perf_counter() - started) * 1000
-
-    if result.returncode != 0:
-        return ScriptOutput(
-            success=False,
-            error=result.stderr.strip() or "Script failed",
-            duration_ms=round(elapsed, 2),
-        )
-
-    try:
-        output = json.loads(result.stdout.strip())
-    except (json.JSONDecodeError, ValueError):
-        return ScriptOutput(
-            success=False,
-            error=f"Invalid script output: {result.stdout[:200]}",
-            duration_ms=round(elapsed, 2),
-        )
-
-    return ScriptOutput(
-        success=output.get("success", False),
-        variables=output.get("variables", {}),
-        logs=output.get("logs", []),
-        error=output.get("error"),
-        duration_ms=round(elapsed, 2),
+_GONE_BODY = {
+    "detail": (
+        "POST /api/scripts/execute (Node.js subprocess) was removed in "
+        "Fáze 0 P0 security hardening. It allowed arbitrary code execution "
+        "with full filesystem access (SSH keys, AWS credentials, etc.). "
+        "Migrate to: (1) POST /api/scripts/execute-safe — safe DSL with "
+        "set/get/log/assert/setHeader, or (2) template engine syntax "
+        "{{$timestamp}} / {{$uuid}} / {{$randomInt}} in request bodies. "
+        "See docs/security/scripts-deprecation.md for migration examples."
     )
+}
+
+
+@router.post("/execute")
+async def execute_script_removed() -> JSONResponse:
+    """Removed: Node.js subprocess endpoint.
+
+    Returns HTTP 410 Gone with migration instructions.
+    """
+    return JSONResponse(status_code=410, content=_GONE_BODY)
 
 
 @router.post("/execute-safe", response_model=SafeScriptOutput)
