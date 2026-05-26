@@ -1,7 +1,8 @@
 /**
  * Silk — Frontend testing module sidecar client.
  *
- * Wraps /api/silk/* endpoints.
+ * Wraps /api/silk/* endpoints (v2: recording, baselines, multi-browser,
+ * a11y, history, mocks).
  */
 
 import { call, getSidecarBaseUrl } from "./client";
@@ -13,12 +14,45 @@ export interface SilkBrowserCheckOutput {
   paths: string[];
 }
 
+export interface SilkMockRule {
+  pattern: string;
+  status?: number;
+  body?: Record<string, unknown> | unknown[] | string | null;
+  content_type?: string;
+}
+
+export interface SilkA11yViolation {
+  rule: string;
+  impact: string;
+  description: string;
+  nodes: string[];
+}
+
+export interface SilkBrowserRunResult {
+  browser: string;
+  exit_code: number;
+  passed: number;
+  failed: number;
+  errors: number;
+  duration_ms: number;
+  trace_path: string | null;
+  stderr_tail: string;
+  json_report: Record<string, unknown> | null;
+  a11y_violations: SilkA11yViolation[];
+}
+
 export interface SilkRunInput {
   spec_path?: string;
   inline_code?: string;
   env_vars?: Record<string, string>;
   timeout_ms?: number;
   workspace_dir?: string;
+  /** Browser engines to target. Default: ["chromium"]. */
+  browsers?: ("chromium" | "firefox" | "webkit")[];
+  /** Network mock rules injected as page.route() wrappers. */
+  mocks?: SilkMockRule[];
+  /** Inject axe-core a11y audit after each navigation. */
+  run_accessibility_audit?: boolean;
 }
 
 export interface SilkRunOutput {
@@ -31,6 +65,8 @@ export interface SilkRunOutput {
   trace_path: string | null;
   json_report: Record<string, unknown> | null;
   stderr_tail: string;
+  per_browser_results: Record<string, SilkBrowserRunResult>;
+  a11y_violations: SilkA11yViolation[];
 }
 
 export interface SilkInstallBrowsersResponse {
@@ -68,6 +104,75 @@ export interface SilkAutoSpecOutput {
   spec_code: string;
 }
 
+// ---- Recording ----
+
+export interface SilkRecordStartInput {
+  url: string;
+  workspace_dir?: string;
+}
+
+export interface SilkRecordStartOutput {
+  session_id: string;
+  message: string;
+}
+
+export interface SilkRecordStopOutput {
+  session_id: string;
+  spec_text: string;
+  spec_path: string | null;
+}
+
+// ---- Baseline management ----
+
+export interface SilkBaselineSaveInput {
+  screenshot_path: string;
+  test_id: string;
+  browser?: string;
+  viewport?: string;
+}
+
+export interface SilkBaselineSaveOutput {
+  baseline_path: string;
+  test_id: string;
+  browser: string;
+  viewport: string;
+}
+
+export interface SilkBaselineCompareInput {
+  current_path: string;
+  test_id: string;
+  browser?: string;
+  viewport?: string;
+  threshold?: number;
+}
+
+export interface SilkBaselineCompareOutput {
+  baseline_path: string;
+  diff_path: string;
+  pixel_diff_count: number;
+  total_pixels: number;
+  diff_ratio: number;
+  passed: boolean;
+  approved: boolean;
+}
+
+// ---- Run history ----
+
+export interface SilkRunHistoryEntry {
+  id: string;
+  spec_path: string;
+  status: "passed" | "failed" | "error";
+  duration_ms: number;
+  started_at: string;
+  browsers: string[];
+  trace_path: string | null;
+  screenshot_paths: string[];
+  a11y_violations_count: number;
+  stderr_tail: string;
+  /** Only present in single-run detail endpoint. */
+  json_report?: Record<string, unknown> | null;
+}
+
 // ---- Methods ----------------------------------------------------------------
 
 export const silkMethods = {
@@ -89,10 +194,6 @@ export const silkMethods = {
    * Returns an EventSource you must close when done.
    * Each ``message`` event carries a progress line; look for
    * ``DONE path=`` or ``ERROR `` in ``event.data``.
-   *
-   * Note: EventSource does not support custom headers — the token is
-   * appended as a query param. The sidecar SSE endpoint accepts token
-   * via query or header.
    */
   silkInstallBrowsersStream(token: string): Promise<EventSource> {
     return getSidecarBaseUrl().then((base) => {
@@ -131,12 +232,69 @@ export const silkMethods = {
 
   /**
    * Generate a starter Playwright spec from a failed Strand request.
-   * The spec is written to ``<workspace>/.theridion/silk/auto-generated/``.
    */
   silkAutoSpec(input: SilkAutoSpecInput): Promise<SilkAutoSpecOutput> {
     return call<SilkAutoSpecOutput>("/api/silk/auto-spec", {
       method: "POST",
       body: JSON.stringify(input),
     });
+  },
+
+  // ---- Recording ----
+
+  /** Start a Playwright codegen session for the given URL. */
+  silkRecordStart(input: SilkRecordStartInput): Promise<SilkRecordStartOutput> {
+    return call<SilkRecordStartOutput>("/api/silk/record/start", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Open SSE stream to receive live codegen output. */
+  silkRecordStream(sessionId: string, token: string): Promise<EventSource> {
+    return getSidecarBaseUrl().then((base) => {
+      const url = `${base}/api/silk/record/stream/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(token)}`;
+      return new EventSource(url);
+    });
+  },
+
+  /** Stop the codegen session and return the captured spec. */
+  silkRecordStop(sessionId: string): Promise<SilkRecordStopOutput> {
+    return call<SilkRecordStopOutput>("/api/silk/record/stop", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  },
+
+  // ---- Visual regression baseline ----
+
+  /** Save a screenshot as the approved visual baseline. */
+  silkBaselineSave(input: SilkBaselineSaveInput): Promise<SilkBaselineSaveOutput> {
+    return call<SilkBaselineSaveOutput>("/api/silk/baseline/save", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Compare current screenshot against saved baseline. */
+  silkBaselineCompare(
+    input: SilkBaselineCompareInput,
+  ): Promise<SilkBaselineCompareOutput> {
+    return call<SilkBaselineCompareOutput>("/api/silk/baseline/compare", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  // ---- Run history ----
+
+  /** Fetch recent run history (newest first). */
+  silkListRuns(limit = 50): Promise<SilkRunHistoryEntry[]> {
+    return call<SilkRunHistoryEntry[]>(`/api/silk/runs?limit=${limit}`);
+  },
+
+  /** Fetch a single run by ID (includes full json_report). */
+  silkGetRun(runId: string): Promise<SilkRunHistoryEntry> {
+    return call<SilkRunHistoryEntry>(`/api/silk/runs/${encodeURIComponent(runId)}`);
   },
 };

@@ -1,12 +1,21 @@
 """Tests for the Silk frontend-testing module (/api/silk/*).
 
-Covers:
+Covers (original 17):
   - GET  /api/silk/browsers/check — happy path + missing cache
   - POST /api/silk/run            — spec_path + inline_code + validation errors
   - GET  /api/silk/trace/{id}     — 404 for unknown run, 400 for bad id
   - POST /api/silk/screenshot-diff — pixel diff math with synthetic images
   - POST /api/silk/auto-spec      — generated code structure
   - POST /api/silk/install-browsers/sync — npx absent path
+
+New (v2 — ~30 additional):
+  - POST /api/silk/run multi-browser, mocks, a11y fields
+  - POST /api/silk/record/start — codegen subprocess
+  - POST /api/silk/record/stop  — terminate + spec capture
+  - POST /api/silk/baseline/save + /baseline/compare
+  - GET  /api/silk/runs + /runs/{id} — history persistence
+  - silk_storage module directly
+  - _build_mock_wrapper helper
 
 Token auth is handled globally by conftest.py (_pin_sidecar_token + patched
 TestClient.__init__), so individual tests do not need HEADERS dicts or env
@@ -406,3 +415,496 @@ def test_install_browsers_sync_success(client: TestClient) -> None:
     data = res.json()
     assert data["ok"] is True
     assert "chromium" in (data["browser_path"] or "").lower()
+
+
+# ===========================================================================
+# V2 — multi-browser, mocks, a11y
+# ===========================================================================
+
+
+def test_run_multi_browser_aggregates(client: TestClient, tmp_path: Path) -> None:
+    """Multi-browser run aggregates passed/failed across browsers."""
+    fake_report = {
+        "stats": {"expected": 1, "unexpected": 0, "skipped": 0},
+        "suites": [],
+    }
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = json.dumps(fake_report)
+    mock_result.stderr = ""
+
+    spec = tmp_path / "multi.spec.ts"
+    spec.write_text("import {test} from '@playwright/test';", encoding="utf-8")
+
+    with patch("shutil.which", return_value="/usr/bin/npx"), \
+         patch("subprocess.run", return_value=mock_result):
+        res = client.post(
+            "/api/silk/run",
+            json={
+                "spec_path": str(spec),
+                "browsers": ["chromium", "firefox"],
+            },
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["exit_code"] == 0
+    assert "chromium" in data["per_browser_results"]
+    assert "firefox" in data["per_browser_results"]
+    # Aggregated passed = 1 (chromium) + 1 (firefox)
+    assert data["passed"] == 2
+
+
+def test_run_unknown_browser_returns_400(client: TestClient, tmp_path: Path) -> None:
+    """Unknown browser name returns HTTP 400."""
+    spec = tmp_path / "bad.spec.ts"
+    spec.write_text("", encoding="utf-8")
+
+    with patch("shutil.which", return_value="/usr/bin/npx"):
+        res = client.post(
+            "/api/silk/run",
+            json={
+                "spec_path": str(spec),
+                "browsers": ["ie6"],
+            },
+        )
+
+    assert res.status_code == 400
+    assert "ie6" in res.json()["detail"]
+
+
+def test_run_a11y_field_present_in_output(client: TestClient, tmp_path: Path) -> None:
+    """Run output always contains a11y_violations key (even when empty)."""
+    fake_report = {"stats": {"expected": 1, "unexpected": 0, "skipped": 0}, "suites": []}
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = json.dumps(fake_report)
+    mock_result.stderr = ""
+
+    spec = tmp_path / "a11y.spec.ts"
+    spec.write_text("test('x', () => {})", encoding="utf-8")
+
+    with patch("shutil.which", return_value="/usr/bin/npx"), \
+         patch("subprocess.run", return_value=mock_result):
+        res = client.post(
+            "/api/silk/run",
+            json={"spec_path": str(spec), "run_accessibility_audit": True},
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert "a11y_violations" in data
+    assert isinstance(data["a11y_violations"], list)
+
+
+def test_run_with_mocks_injects_wrapper(client: TestClient, tmp_path: Path) -> None:
+    """Mock rules cause wrapper spec to be written (temp file contains route calls)."""
+    captured_cmds: list[list[str]] = []
+
+    fake_report = {"stats": {"expected": 1, "unexpected": 0, "skipped": 0}, "suites": []}
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = json.dumps(fake_report)
+    mock_result.stderr = ""
+
+    written_specs: list[str] = []
+
+    original_write = Path.write_text
+
+    def patched_write(self: Path, data: str, **kw: object) -> None:  # type: ignore[override]
+        if "wrapped.spec.ts" in str(self):
+            written_specs.append(data)
+        return original_write(self, data, **kw)
+
+    spec = tmp_path / "mock_test.spec.ts"
+    spec.write_text("import { test } from '@playwright/test';", encoding="utf-8")
+
+    with patch("shutil.which", return_value="/usr/bin/npx"), \
+         patch("subprocess.run", return_value=mock_result), \
+         patch.object(Path, "write_text", patched_write):
+        res = client.post(
+            "/api/silk/run",
+            json={
+                "spec_path": str(spec),
+                "mocks": [
+                    {"pattern": "**/api/users/*", "status": 200, "body": {"id": 1}},
+                ],
+            },
+        )
+
+    assert res.status_code == 200
+    assert any("route.fulfill" in s for s in written_specs), \
+        "Expected page.route wrapper to be injected into spec"
+
+
+# ===========================================================================
+# V2 — _build_mock_wrapper unit tests
+# ===========================================================================
+
+
+def test_build_mock_wrapper_injects_route() -> None:
+    """Mock wrapper inserts page.route call for given pattern."""
+    from theridion_sidecar.api.silk import _build_mock_wrapper, MockRule
+
+    code = "import { test } from '@playwright/test';\ntest('x', () => {});"
+    rules = [MockRule(pattern="**/api/**", status=404, body={"error": "nf"})]
+    result = _build_mock_wrapper(code, rules)
+    assert "page.route" in result
+    assert "**/api/**" in result
+    assert "route.fulfill" in result
+
+
+def test_build_mock_wrapper_empty_rules_passthrough() -> None:
+    """Empty mock list returns original code unchanged."""
+    from theridion_sidecar.api.silk import _build_mock_wrapper
+
+    code = "import { test } from '@playwright/test';"
+    assert _build_mock_wrapper(code, []) == code
+
+
+# ===========================================================================
+# V2 — Recording (codegen subprocess)
+# ===========================================================================
+
+
+def test_record_start_no_npx(client: TestClient) -> None:
+    """Returns 400 when npx is absent."""
+    with patch("shutil.which", return_value=None):
+        res = client.post("/api/silk/record/start", json={"url": "http://localhost:3000"})
+    assert res.status_code == 400
+    assert "npx" in res.json()["detail"]
+
+
+def test_record_stop_unknown_session(client: TestClient) -> None:
+    """Returns 404 for an unknown session_id."""
+    res = client.post("/api/silk/record/stop", json={"session_id": "nonexistent123"})
+    assert res.status_code == 404
+
+
+def test_record_stop_traversal_rejected(client: TestClient) -> None:
+    """Rejects session_id with path-traversal characters."""
+    res = client.post("/api/silk/record/stop", json={"session_id": "../etc/passwd"})
+    assert res.status_code == 400
+
+
+def test_record_stream_unknown_session(client: TestClient) -> None:
+    """Returns 404 when streaming an unknown session."""
+    res = client.get("/api/silk/record/stream/nonexistent999")
+    assert res.status_code == 404
+
+
+# ===========================================================================
+# V2 — Visual regression baselines
+# ===========================================================================
+
+
+def test_baseline_save_and_compare_identical(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saving then comparing identical images yields passed=True, diff_ratio=0."""
+    try:
+        from PIL import Image
+    except ImportError:
+        pytest.skip("Pillow not installed")
+
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+
+    img = Image.new("RGB", (80, 80), color=(0, 200, 100))
+    screenshot = tmp_path / "cap.png"
+    img.save(str(screenshot))
+
+    # Save as baseline.
+    res = client.post(
+        "/api/silk/baseline/save",
+        json={
+            "screenshot_path": str(screenshot),
+            "test_id": "login-flow",
+            "browser": "chromium",
+            "viewport": "1280x720",
+        },
+    )
+    assert res.status_code == 200
+    save_data = res.json()
+    assert "baseline_path" in save_data
+    assert Path(save_data["baseline_path"]).exists()
+
+    # Compare same image → should pass.
+    res2 = client.post(
+        "/api/silk/baseline/compare",
+        json={
+            "current_path": str(screenshot),
+            "test_id": "login-flow",
+            "browser": "chromium",
+            "viewport": "1280x720",
+            "threshold": 0.01,
+        },
+    )
+    assert res2.status_code == 200
+    cmp_data = res2.json()
+    assert cmp_data["passed"] is True
+    assert cmp_data["diff_ratio"] == 0.0
+    assert cmp_data["pixel_diff_count"] == 0
+
+
+def test_baseline_compare_different_images(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Different current image vs baseline produces diff_ratio > 0, passed=False at threshold=0."""
+    try:
+        from PIL import Image
+    except ImportError:
+        pytest.skip("Pillow not installed")
+
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+
+    baseline_img = Image.new("RGB", (60, 60), color=(255, 0, 0))
+    current_img = Image.new("RGB", (60, 60), color=(0, 0, 255))
+    baseline_file = tmp_path / "baseline_orig.png"
+    current_file = tmp_path / "current.png"
+    baseline_img.save(str(baseline_file))
+    current_img.save(str(current_file))
+
+    # Save red image as baseline.
+    client.post(
+        "/api/silk/baseline/save",
+        json={
+            "screenshot_path": str(baseline_file),
+            "test_id": "diff-test",
+            "browser": "chromium",
+            "viewport": "800x600",
+        },
+    )
+
+    # Compare with blue image.
+    res = client.post(
+        "/api/silk/baseline/compare",
+        json={
+            "current_path": str(current_file),
+            "test_id": "diff-test",
+            "browser": "chromium",
+            "viewport": "800x600",
+            "threshold": 0.0,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["passed"] is False
+    assert data["diff_ratio"] > 0
+    assert Path(data["diff_path"]).exists()
+
+
+def test_baseline_save_missing_screenshot(client: TestClient) -> None:
+    """Returns 404 when screenshot file does not exist."""
+    res = client.post(
+        "/api/silk/baseline/save",
+        json={
+            "screenshot_path": "/nonexistent/screenshot.png",
+            "test_id": "x",
+        },
+    )
+    assert res.status_code == 404
+
+
+def test_baseline_compare_no_baseline(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Returns 404 when no baseline has been saved for given test_id."""
+    try:
+        from PIL import Image
+    except ImportError:
+        pytest.skip("Pillow not installed")
+
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    img = Image.new("RGB", (40, 40), color=(50, 50, 50))
+    current_file = tmp_path / "cur.png"
+    img.save(str(current_file))
+
+    res = client.post(
+        "/api/silk/baseline/compare",
+        json={
+            "current_path": str(current_file),
+            "test_id": "never-saved",
+            "browser": "chromium",
+            "viewport": "1280x720",
+        },
+    )
+    assert res.status_code == 404
+
+
+# ===========================================================================
+# V2 — Run history (SQLite)
+# ===========================================================================
+
+
+def test_run_history_initially_empty(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/silk/runs returns empty list on fresh DB."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    res = client.get("/api/silk/runs")
+    assert res.status_code == 200
+    assert res.json() == []
+
+
+def test_run_saved_to_history(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a successful run, GET /api/silk/runs returns it."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    fake_report = {"stats": {"expected": 1, "unexpected": 0, "skipped": 0}, "suites": []}
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = json.dumps(fake_report)
+    mock_result.stderr = ""
+
+    with patch("shutil.which", return_value="/usr/bin/npx"), \
+         patch("subprocess.run", return_value=mock_result):
+        run_res = client.post(
+            "/api/silk/run",
+            json={"inline_code": "test('x', () => {});"},
+        )
+    assert run_res.status_code == 200
+    run_id = run_res.json()["run_id"]
+
+    # History should now have one entry.
+    hist_res = client.get("/api/silk/runs")
+    assert hist_res.status_code == 200
+    entries = hist_res.json()
+    assert len(entries) >= 1
+    ids = [e["id"] for e in entries]
+    assert run_id in ids
+
+
+def test_run_history_single_entry(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/silk/runs/{id} returns full entry with status field."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    fake_report = {"stats": {"expected": 0, "unexpected": 1, "skipped": 0}, "suites": []}
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = json.dumps(fake_report)
+    mock_result.stderr = "FAIL"
+
+    with patch("shutil.which", return_value="/usr/bin/npx"), \
+         patch("subprocess.run", return_value=mock_result):
+        run_res = client.post(
+            "/api/silk/run",
+            json={"inline_code": "test('fail', () => { expect(1).toBe(2); });"},
+        )
+    assert run_res.status_code == 200
+    run_id = run_res.json()["run_id"]
+
+    detail_res = client.get(f"/api/silk/runs/{run_id}")
+    assert detail_res.status_code == 200
+    d = detail_res.json()
+    assert d["id"] == run_id
+    assert d["status"] == "failed"
+    assert "started_at" in d
+
+
+def test_run_history_not_found(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/silk/runs/{id} returns 404 for unknown id."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    res = client.get("/api/silk/runs/deadbeef00000000")
+    assert res.status_code == 404
+
+
+def test_run_history_limit_param(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/silk/runs?limit=1 returns at most 1 entry."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+
+    fake_report = {"stats": {"expected": 1, "unexpected": 0, "skipped": 0}, "suites": []}
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = json.dumps(fake_report)
+    mock_result.stderr = ""
+
+    with patch("shutil.which", return_value="/usr/bin/npx"), \
+         patch("subprocess.run", return_value=mock_result):
+        for _ in range(3):
+            client.post("/api/silk/run", json={"inline_code": "test('x', ()=>{})"})
+
+    res = client.get("/api/silk/runs?limit=1")
+    assert res.status_code == 200
+    assert len(res.json()) == 1
+
+
+# ===========================================================================
+# V2 — silk_storage module unit tests
+# ===========================================================================
+
+
+def test_silk_storage_save_and_retrieve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """save_run then get_run returns the same data."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    from theridion_sidecar import silk_storage
+
+    run_id = "testrun001"
+    silk_storage.save_run(
+        run_id=run_id,
+        spec_path="tests/login.spec.ts",
+        exit_code=0,
+        duration_ms=1234,
+        browsers=["chromium"],
+        trace_path="/tmp/trace.zip",
+        a11y_violations_count=2,
+        stderr_tail="",
+    )
+
+    result = silk_storage.get_run(run_id)
+    assert result is not None
+    assert result["id"] == run_id
+    assert result["status"] == "passed"
+    assert result["duration_ms"] == 1234
+    assert result["browsers"] == ["chromium"]
+    assert result["a11y_violations_count"] == 2
+
+
+def test_silk_storage_list_runs_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """list_runs returns newest-first ordering."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    from theridion_sidecar import silk_storage
+    import time
+
+    for i in range(3):
+        silk_storage.save_run(
+            run_id=f"run-{i}",
+            spec_path=f"spec-{i}.ts",
+            exit_code=0,
+            duration_ms=i * 100,
+            browsers=["chromium"],
+        )
+        time.sleep(0.01)  # Ensure distinct timestamps.
+
+    runs = silk_storage.list_runs(limit=10)
+    ids = [r["id"] for r in runs]
+    # Newest = run-2
+    assert ids[0] == "run-2"
+    assert ids[-1] == "run-0"
+
+
+def test_silk_storage_unknown_id_returns_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_run returns None for unknown id."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    from theridion_sidecar import silk_storage
+
+    assert silk_storage.get_run("no-such-run") is None
+
+
+def test_silk_storage_exit_code_maps_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exit codes 0/1/other map to passed/failed/error status."""
+    monkeypatch.setenv("THERIDION_HOME", str(tmp_path))
+    from theridion_sidecar import silk_storage
+
+    for code, expected in [(0, "passed"), (1, "failed"), (2, "error")]:
+        rid = f"code-{code}"
+        silk_storage.save_run(run_id=rid, spec_path="x.ts", exit_code=code, duration_ms=0, browsers=["chromium"])
+        r = silk_storage.get_run(rid)
+        assert r is not None
+        assert r["status"] == expected, f"exit {code} should give status {expected!r}"
+

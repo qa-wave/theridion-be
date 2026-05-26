@@ -197,7 +197,23 @@ export type {
   SilkBrowserCheckOutput, SilkRunInput, SilkRunOutput,
   SilkInstallBrowsersResponse, SilkScreenshotDiffInput, SilkScreenshotDiffOutput,
   SilkAutoSpecInput, SilkAutoSpecOutput,
+  SilkMockRule, SilkA11yViolation, SilkBrowserRunResult,
+  SilkRecordStartInput, SilkRecordStartOutput, SilkRecordStopOutput,
+  SilkBaselineSaveInput, SilkBaselineSaveOutput,
+  SilkBaselineCompareInput, SilkBaselineCompareOutput,
+  SilkRunHistoryEntry,
 } from "./silk";
+
+export type {
+  SpinScenario, SpinStep, SpinStepResult, SpinRunResult,
+  SpinScenarioInfo, SpinScenarioListOutput, SpinDryRunOutput,
+  SpinContractVerifyInput, SpinContractVerifyResult,
+  SpinSchemaValidateInput, SpinSchemaValidateOutput,
+  SpinDbSnapshotInput, SpinDbSnapshotOutput,
+  SpinDbCompareInput, SpinDbCompareOutput,
+  SpinPerfProbeInput, SpinPerfProbeOutput,
+  SpinAssertionResult, SpinStepAssert,
+} from "./spin";
 
 // ---- Compose the unified sidecar object from all sub-modules ----
 
@@ -218,6 +234,7 @@ import { tagsMethods } from "./tags";
 import { templateEngineMethods } from "./templateEngine";
 import { productMethods } from "./product";
 import { silkMethods } from "./silk";
+import { spinMethods } from "./spin";
 
 export const sidecar = {
   ...requestsMethods,
@@ -237,4 +254,5 @@ export const sidecar = {
   ...templateEngineMethods,
   ...productMethods,
   ...silkMethods,
+  ...spinMethods,
 } as const;
