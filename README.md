@@ -1,35 +1,42 @@
-# Theridion — Modern API Testing Platform
+# Theridion — Modular QA Platform
 
-A local-first, open-source desktop application for testing APIs across every protocol. Built for developers and QA engineers who want full control over their API workflows without cloud lock-in.
+> *The QA layer your stack was missing.*
+
+Theridion is a local-first, open-source, modular QA platform. File-based, git-friendly, no cloud lock-in. Composed of four entities that share one workspace and one `.thr` file format:
+
+| Entity | What it does | Deploy |
+|---|---|---|
+| **Theridion Studio** | API client (REST/GraphQL/SOAP/gRPC) + request chains + load testing | Tauri desktop |
+| **Theridion Runner** | CI gates + scheduled monitoring (headless CLI) | Python CLI + Docker + GitHub Action |
+| **Theridion Hub** | Team-facing web dashboard + reports ingest | Next.js (Vercel/self-host) |
+| **Theridion Marketplace** | Plugin registry (Tier 1 Rust, Tier 2 WASM post-V1) | In-Studio panel + GitHub JSON |
 
 ![Theridion Screenshot](docs/screenshot.png)
 
-## Key Features
+## Studio — Key Features
 
-- **REST** — Full HTTP client with environment variables, auth helpers, and response assertions
-- **SOAP / WSDL** — Inspect services, execute operations, WS-Security support
-- **GraphQL** — Introspection, variables panel, and query editor
-- **gRPC** — Server reflection and unary invocation
-- **WebSocket** — Connect, send frames, inspect messages
-- **Kafka** — Produce and consume messages
-- **Load Testing** — Embedded load runner with percentile stats and comparison reports
-- **AI Test Generation** — Generate test cases from your API specs via local LLMs (Ollama)
-- **Code Generation** — Export requests as Python, JavaScript, Go, Java, C#, cURL, PHP, or Ruby
-- **Collection Runner** — Execute entire collections with assertions and HTML trace reports
-- **File-Based Projects** — Git-friendly storage, no cloud sync required
+- **REST / GraphQL / SOAP / gRPC** — every protocol in one client, no cloud sync
+- **WS-Security** — XML Signature, UsernameToken, X.509 directly from UI (no other modern client does this)
+- **WebSocket / Kafka / JDBC / JMS / MQTT** — protocol coverage beyond HTTP
+- **Request chains (Mesh)** — declarative YAML chaining, contract snapshots
+- **Load testing (Surge)** — embedded Locust, "Run as Load Test" on any collection
+- **AI Test Generation** — local LLMs (Ollama), no data leaves your machine
+- **Code Generation** — export requests as Python, JavaScript, Go, Java, C#, cURL, PHP, or Ruby
+- **Collection Runner** — assertions, HTML trace reports (Playwright-style)
+- **File-Based Projects** — `.thr` files in your repo, git-friendly, no cloud sync required
 
-## Quick Start
+## Quick Start (Studio)
 
 ```bash
 # 1. Clone and install
 git clone https://github.com/qa-wave/theridion.git
-cd theridion/apps/desktop
+cd theridion/apps/desktop      # NOTE: will be renamed apps/studio (see wiki/02-ARCHITECTURE.md PR-1)
 pnpm install
 
 # 2. Build the Python sidecar
 pnpm sidecar:bundle
 
-# 3. Launch the app
+# 3. Launch Studio
 pnpm tauri dev
 ```
 
@@ -37,28 +44,54 @@ pnpm tauri dev
 
 ## Why Theridion?
 
-| | Postman | SoapUI | Bruno | Theridion |
+| | Postman | SoapUI | Bruno | **Theridion** |
 |---|---|---|---|---|
-| **Local-first / git-friendly** | Cloud-first | File-based | File-based | File-based |
-| **SOAP + WS-Security** | Limited | Full | None | Full |
-| **Load testing** | Cloud only | Built-in | None | Built-in |
-| **Security scanning** | None | Built-in | None | Built-in |
-| **Modern UI** | Yes | Dated | Yes | Yes |
-| **Open source** | No | Partial | Yes | Yes |
-| **Test runner + trace report** | Basic | JUnit XML | None | Playwright-style |
+| **Local-first / git-friendly** | Cloud-first | File-based | File-based | **File-based** |
+| **SOAP + WS-Security** | Limited | Full | None | **Full (X.509, UsernameToken, XML Signature)** |
+| **Load testing** | Cloud only | Built-in | None | **Built-in (Surge)** |
+| **CI/CD gates** | Postman Monitors (paid) | Manual | Newman | **Runner — native GitHub Action** |
+| **Team dashboard** | Postman Web (cloud) | None | None | **Hub — self-hosted** |
+| **Plugin marketplace** | Proprietary | None | npm-based | **Tier 1 Rust + WASM** |
+| **Open source** | No | Partial | Yes | **Yes (MIT)** |
+| **Test runner + trace report** | Basic | JUnit XML | None | **Playwright-style HTML** |
 
 Named after *Theridion*, a genus of spiders that build chaotic three-dimensional cobwebs — a fitting metaphor for the entangled dependencies of modern APIs.
+
+## Suite Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  YOUR REPO                                                    │
+│  ├── .theridion/                  (git-friendly, shared)     │
+│  ├── api/*.thr  chain/*.thr  load/*.thr                      │
+│  └── gates/*.yaml                                             │
+└──────────────────────┬───────────────────────────────────────┘
+                       │ same files, three execution surfaces
+       ┌───────────────┼────────────────┬─────────────────────┐
+       ▼               ▼                ▼                     ▼
+┌────────────┐  ┌────────────┐   ┌────────────┐       ┌──────────────┐
+│  STUDIO    │  │  RUNNER    │   │    HUB     │       │ MARKETPLACE  │
+│  (desktop) │  │  (CLI/CI)  │   │   (web)    │       │ (plugins)    │
+│  authoring │  │  headless  │   │  team view │       │  extensions  │
+└────────────┘  └─────┬──────┘   └─────▲──────┘       └──────────────┘
+                      │ POST /api/ingest │
+                      └──────────────────┘
+                       JSON RunResult schema
+```
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Desktop shell | Tauri 2 (Rust) |
-| Frontend | React 18 + TypeScript + Tailwind CSS + Monaco Editor |
-| Backend | Python FastAPI sidecar (bundled via PyInstaller) |
+| Studio shell | Tauri 2 (Rust) |
+| Studio frontend | React 18 + TypeScript + Tailwind CSS + Monaco Editor |
+| Sidecar | Python FastAPI (bundled via PyInstaller for Studio, embedded import for Runner) |
 | HTTP engine | httpx with HTTP/2 |
-| SOAP | zeep |
-| Package management | pnpm (JS), uv (Python) |
+| SOAP | zeep + signxml/xmlsec (WS-Security) |
+| Load testing | embedded Locust |
+| Hub | Next.js 16 App Router + Vercel + Neon Postgres |
+| Plugin runtime | Tier 1 Rust (Tauri capabilities), Tier 2 WASM/Extism (post-V1) |
+| Package management | pnpm + Turborepo (JS), uv workspace (Python), Cargo workspace (Rust) |
 
 ## Development
 
