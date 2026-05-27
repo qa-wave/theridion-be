@@ -39,6 +39,15 @@
     "externalBin": ["binaries/theridion-sidecar"],
     "category": "DeveloperTool",
     "shortDescription": "Backend API testing — Theridion BE",
-    "longDescription": "Theridion BE — backend & integration testing desktop app. REST, GraphQL, gRPC, SOAP/WS-Security, Kafka, JMS, JDBC, MQTT — file-based collections and assertions, no cloud dependency."
+    "longDescription": "Theridion BE — backend & integration testing desktop app. REST, GraphQL, gRPC, SOAP/WS-Security, Kafka, JMS, JDBC, MQTT — file-based collections and assertions, no cloud dependency.",
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/qa-wave/theridion/releases/latest/download/latest-be.json"
+      ],
+      "pubkey": ""
+    }
   }
 }
