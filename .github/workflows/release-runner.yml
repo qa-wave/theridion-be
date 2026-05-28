@@ -111,7 +111,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
 
       - name: Build and push Runner Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: apps/runner
           file: apps/runner/Dockerfile
