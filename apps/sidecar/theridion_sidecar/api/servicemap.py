@@ -183,10 +183,5 @@ def delete_edge(edge_id: str) -> ServiceGraph:
 
 
 def _flatten(items: list[Any]) -> list[Any]:
-    out = []
-    for it in items:
-        if it.is_folder:
-            out.extend(_flatten(it.items))
-        else:
-            out.append(it)
-    return out
+    # Delegates to the canonical helper in storage (dedup of ~12 local copies).
+    return storage.walk_requests(items)

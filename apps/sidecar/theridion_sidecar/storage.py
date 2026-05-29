@@ -41,21 +41,69 @@ def collections_dir() -> Path:
     return d
 
 
+def safe_resolve_under(candidate: str | os.PathLike[str], allowed_root: Path) -> Path:
+    """Resolve *candidate* and verify it stays within *allowed_root*.
+
+    Both paths are fully resolved (symlinks + ``..`` collapsed) before the
+    containment check, so this defends against path-traversal escapes. The
+    *allowed_root* itself is considered in-bounds. Raises ``ValueError`` when
+    the candidate escapes the root.
+    """
+    root = Path(allowed_root).expanduser().resolve()
+    resolved = Path(candidate).expanduser().resolve()
+    if resolved != root and not resolved.is_relative_to(root):
+        raise ValueError(
+            f"path {str(candidate)!r} resolves outside the allowed directory {root}"
+        )
+    return resolved
+
+
+def certs_dir() -> Path:
+    """~/.theridion/certs — allowlisted dir for client TLS cert/key/CA paths."""
+    d = home_dir() / "certs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _path_for(collection_id: str) -> Path:
     safe = uuid.UUID(collection_id)  # raises ValueError if malformed
     return collections_dir() / f"{safe}.json"
 
 
 def _walk(items: list[CollectionItem]):
-    """Iterate every item in a tree depth-first."""
+    """Iterate every item in a tree depth-first (folders included)."""
     for item in items:
         yield item
         if item.is_folder:
             yield from _walk(item.items)
 
 
+def walk_requests(items: list[CollectionItem]) -> list[CollectionItem]:
+    """Flatten a collection tree to its leaf (non-folder) request items.
+
+    Canonical replacement for the per-module ``_flatten_requests`` /
+    ``_flatten`` helpers that operated on :class:`CollectionItem` trees.
+    """
+    return [it for it in _walk(items) if not it.is_folder]
+
+
+def walk_request_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten a raw-dict collection tree to its leaf request dicts.
+
+    Mirror of :func:`walk_requests` for callers that work with JSON dicts
+    (``item["is_folder"]`` / ``item["items"]``) rather than models.
+    """
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("is_folder"):
+            out.extend(walk_request_dicts(item.get("items", [])))
+        else:
+            out.append(item)
+    return out
+
+
 def _count_requests(items: list[CollectionItem]) -> int:
-    return sum(1 for it in _walk(items) if not it.is_folder)
+    return len(walk_requests(items))
 
 
 def list_summaries() -> list[CollectionSummary]:

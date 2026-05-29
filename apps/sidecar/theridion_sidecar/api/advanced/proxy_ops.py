@@ -180,13 +180,8 @@ def proxy_har(session_id: str) -> dict[str, Any]:
 
 
 def _flatten_requests(items: list[CollectionItem]) -> list[CollectionItem]:
-    out: list[CollectionItem] = []
-    for item in items:
-        if item.is_folder:
-            out.extend(_flatten_requests(item.items))
-        else:
-            out.append(item)
-    return out
+    # Delegates to the canonical helper in storage (dedup of ~12 local copies).
+    return storage.walk_requests(items)
 
 
 def _looks_like_json(value: str) -> bool:

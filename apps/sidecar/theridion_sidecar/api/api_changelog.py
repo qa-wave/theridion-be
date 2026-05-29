@@ -92,13 +92,8 @@ def _summarize(val: Any) -> str:
 
 
 def _flatten_requests(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for item in items:
-        if item.get("is_folder"):
-            out.extend(_flatten_requests(item.get("items", [])))
-        else:
-            out.append(item)
-    return out
+    # Delegates to the canonical helper in storage (dedup of ~12 local copies).
+    return storage.walk_request_dicts(items)
 
 
 @router.post("/detect", response_model=ChangelogResult)

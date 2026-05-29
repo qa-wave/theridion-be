@@ -29,6 +29,7 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "stomp-py>=8.1",
     "grpcio-tools>=1.80.0",
+    "pillow>=11",
 ]
 
 [dependency-groups]

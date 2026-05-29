@@ -163,23 +163,39 @@ async def execute(req: ExecuteRequest, http_request: Request) -> ExecuteResponse
     jar = cookies.load(req.environment_id) if req.environment_id else None
     httpx_cookies = cookies.to_httpx_cookies(jar) if jar and jar.cookies else None
 
-    # Build optional SSL client certificate tuple.
+    # Build optional SSL client certificate tuple. Cert/key paths are
+    # caller-controlled, so they must be constrained to the allowlisted
+    # certs dir (~/.theridion/certs) to prevent reading arbitrary files.
+    certs_root = storage.certs_dir()
+
+    def _safe_cert_path(raw: str, label: str) -> str:
+        try:
+            resolved = storage.safe_resolve_under(raw, certs_root)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{label} must be inside {certs_root}",
+            )
+        if not resolved.is_file():
+            raise HTTPException(status_code=400, detail=f"{label} not found: {raw}")
+        return str(resolved)
+
     cert_pair: tuple[str, str] | None = None
     if req.client_cert and req.client_key:
-        cert_pair = (req.client_cert, req.client_key)
+        cert_pair = (
+            _safe_cert_path(req.client_cert, "client_cert"),
+            _safe_cert_path(req.client_key, "client_key"),
+        )
     elif req.client_cert:
-        cert_pair = (req.client_cert, req.client_cert)
+        safe_cert = _safe_cert_path(req.client_cert, "client_cert")
+        cert_pair = (safe_cert, safe_cert)
 
     # Resolve SSL verification: ca_bundle_path > verify_ssl toggle > default.
     ssl_verify: bool | str = True
     if not req.verify_ssl:
         ssl_verify = False
     elif req.ca_bundle_path:
-        from pathlib import Path
-        ca_path = Path(req.ca_bundle_path).expanduser().resolve()
-        if not ca_path.is_file():
-            raise HTTPException(status_code=400, detail=f"CA bundle not found: {req.ca_bundle_path}")
-        ssl_verify = str(ca_path)
+        ssl_verify = _safe_cert_path(req.ca_bundle_path, "ca_bundle_path")
 
     # Set up timing collector for httpcore trace events.
     collector = _TimingCollector()

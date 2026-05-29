@@ -12,9 +12,10 @@ Extends the simple {{var}} substitution with:
 
 from __future__ import annotations
 
+import ast
 import base64
 import json
-import math
+import operator
 import os
 import re
 import urllib.parse
@@ -138,18 +139,63 @@ def _eval_condition(condition: str, variables: dict[str, Any]) -> bool:
     return val not in ("", "0", "false", "null")
 
 
+# Allowlisted binary/unary operators for the safe arithmetic evaluator.
+_MATH_BIN_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+_MATH_UNARY_OPS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+
+
+def _eval_math_node(node: ast.AST) -> float | int:
+    """Recursively evaluate an allowlisted arithmetic AST node.
+
+    Only Expression/BinOp/UnaryOp/Constant nodes with operators from the
+    allowlist (+ - * / // % **) are permitted; anything else raises
+    ValueError. This replaces eval() to prevent arbitrary code execution.
+    """
+    if isinstance(node, ast.Expression):
+        return _eval_math_node(node.body)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+            raise ValueError("only numeric constants are allowed")
+        return node.value
+    if isinstance(node, ast.BinOp):
+        op = _MATH_BIN_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"operator {type(node.op).__name__} is not allowed")
+        return op(_eval_math_node(node.left), _eval_math_node(node.right))
+    if isinstance(node, ast.UnaryOp):
+        op = _MATH_UNARY_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"unary operator {type(node.op).__name__} is not allowed")
+        return op(_eval_math_node(node.operand))
+    raise ValueError(f"unsupported expression element: {type(node).__name__}")
+
+
 def _eval_math(expr: str) -> str:
-    """Evaluate basic arithmetic: +, -, *, /."""
-    # Only allow digits, operators, spaces, dots, parens
-    if not re.match(r"^[\d\s+\-*/().]+$", expr):
-        return expr
+    """Safely evaluate basic arithmetic via an AST allowlist.
+
+    Supports + - * / // % ** with integers/floats, parentheses, and unary
+    +/-. Anything else (names, calls, attributes, etc.) is rejected and the
+    original expression is returned unchanged.
+    """
     try:
-        result = eval(expr, {"__builtins__": {}}, {"math": math})  # noqa: S307
-        if isinstance(result, float) and result == int(result):
-            return str(int(result))
-        return str(result)
-    except Exception:
+        tree = ast.parse(expr, mode="eval")
+        result = _eval_math_node(tree)
+    except (ValueError, SyntaxError, ZeroDivisionError, TypeError):
         return expr
+    if isinstance(result, float) and result.is_integer():
+        return str(int(result))
+    return str(result)
 
 
 def render_template(

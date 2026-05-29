@@ -224,16 +224,28 @@ def test_trace_returns_zip(client: TestClient, tmp_path: Path, monkeypatch: pyte
 # ---------------------------------------------------------------------------
 
 
-def test_screenshot_diff_missing_file(client: TestClient) -> None:
-    """Returns 404 when a path does not exist."""
+def test_screenshot_diff_missing_file(client: TestClient, tmp_path: Path) -> None:
+    """Returns 404 when an in-bounds path does not exist."""
     res = client.post(
         "/api/silk/screenshot-diff",
         json={
-            "baseline_path": "/nonexistent/baseline.png",
-            "current_path": "/nonexistent/current.png",
+            "baseline_path": str(tmp_path / "baseline.png"),
+            "current_path": str(tmp_path / "current.png"),
         },
     )
     assert res.status_code == 404
+
+
+def test_screenshot_diff_path_traversal_rejected(client: TestClient) -> None:
+    """Out-of-bounds paths are rejected with 400 (path containment)."""
+    res = client.post(
+        "/api/silk/screenshot-diff",
+        json={
+            "baseline_path": "/etc/passwd",
+            "current_path": "/etc/hosts",
+        },
+    )
+    assert res.status_code == 400
 
 
 def test_screenshot_diff_identical_images(

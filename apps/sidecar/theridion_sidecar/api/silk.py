@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -31,6 +32,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import AsyncGenerator
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -68,6 +70,42 @@ def _baselines_dir() -> Path:
     d = _silk_dir() / "baselines"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _safe_silk_path(raw: str, label: str) -> Path:
+    """Resolve a caller-supplied image/artefact path and confine it to the
+    theridion home tree. Prevents path traversal into arbitrary files
+    (e.g. /etc/passwd) when Pillow opens baseline/current screenshots.
+    """
+    try:
+        return storage.safe_resolve_under(raw, storage.home_dir())
+    except ValueError:
+        raise HTTPException(
+            400, detail=f"{label} must be inside {storage.home_dir()}"
+        )
+
+
+# Allowlist: only PLAYWRIGHT_*/TEST_* prefixed keys plus DEBUG/CI may be
+# injected into the Playwright subprocess; everything else (PATH, HOME,
+# NODE_*, LD_*, DYLD_*, PYTHON*) is dropped to prevent execution hijacking.
+_ENV_VAR_ALLOW_RE = re.compile(r"^(?:PLAYWRIGHT_|TEST_|DEBUG$|CI$)")
+
+
+def _safe_env_vars(env_vars: dict[str, str]) -> dict[str, str]:
+    """Filter caller-supplied env vars down to the safe allowlist."""
+    return {k: v for k, v in env_vars.items() if _ENV_VAR_ALLOW_RE.match(k)}
+
+
+def _validate_http_url(url: str, label: str = "url") -> str:
+    """Validate that *url* is a well-formed http/https URL before handing it
+    to a subprocess. Rejects file://, javascript:, data:, etc.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(
+            400, detail=f"{label} must be a well-formed http/https URL"
+        )
+    return url
 
 
 def _node_bin(name: str) -> str | None:
@@ -529,11 +567,22 @@ def run_spec(body: SilkRunInput) -> SilkRunOutput:
     tmp_file: Path | None = None
 
     try:
-        # Resolve spec path.
+        # Resolve spec path. The spec must stay within the allowed root —
+        # the workspace_dir when provided, otherwise the theridion home —
+        # so a crafted spec_path cannot read arbitrary files via traversal.
         if body.spec_path:
             spec = Path(body.spec_path)
             if not spec.is_absolute() and body.workspace_dir:
                 spec = Path(body.workspace_dir) / spec
+            spec_root = (
+                Path(body.workspace_dir) if body.workspace_dir else storage.home_dir()
+            )
+            try:
+                spec = storage.safe_resolve_under(spec, spec_root)
+            except ValueError:
+                raise HTTPException(
+                    400, detail=f"spec_path must be inside {Path(spec_root).expanduser().resolve()}"
+                )
             if not spec.exists():
                 raise HTTPException(404, detail=f"spec file not found: {spec}")
             original_code = spec.read_text(encoding="utf-8")
@@ -555,7 +604,10 @@ def run_spec(body: SilkRunInput) -> SilkRunOutput:
         tmp_file.write_text(code, encoding="utf-8")
         spec_path_str = str(tmp_file)
 
-        env = {**os.environ, **body.env_vars}
+        # Only allow a safe allowlist of caller-supplied env keys into the
+        # Playwright subprocess — block PATH/HOME/loader (LD_*/DYLD_*) and
+        # interpreter (NODE_*/PYTHON*) overrides that could hijack execution.
+        env = {**os.environ, **_safe_env_vars(body.env_vars)}
         browsers = body.browsers if body.browsers else ["chromium"]
 
         per_browser: dict[str, BrowserRunResult] = {}
@@ -695,8 +747,8 @@ def get_trace(run_id: str) -> FileResponse:
 @router.post("/screenshot-diff", response_model=ScreenshotDiffOutput)
 def screenshot_diff(body: ScreenshotDiffInput) -> ScreenshotDiffOutput:
     """Compute a pixel diff between two PNG images using Pillow ImageChops."""
-    baseline_p = Path(body.baseline_path)
-    current_p = Path(body.current_path)
+    baseline_p = _safe_silk_path(body.baseline_path, "baseline_path")
+    current_p = _safe_silk_path(body.current_path, "current_path")
 
     for p in (baseline_p, current_p):
         if not p.exists():
@@ -831,6 +883,10 @@ async def record_start(body: RecordStartInput) -> RecordStartOutput:
     npx = _node_bin("npx")
     if not npx:
         raise HTTPException(400, detail="npx not found — install Node.js 18+")
+
+    # Reject non-http(s) URLs (file://, javascript:, …) before passing to the
+    # codegen subprocess.
+    _validate_http_url(body.url)
 
     session_id = uuid.uuid4().hex
     output_dir = _silk_dir() / "codegen" / session_id
@@ -989,7 +1045,7 @@ def baseline_compare(body: BaselineCompareInput) -> BaselineCompareOutput:
             detail=f"no baseline for test_id={body.test_id!r} browser={body.browser} viewport={body.viewport}",
         )
 
-    current_p = Path(body.current_path)
+    current_p = _safe_silk_path(body.current_path, "current_path")
     if not current_p.exists():
         raise HTTPException(404, detail=f"current screenshot not found: {current_p}")
 

@@ -51,13 +51,8 @@ def _parse_csv(raw: str) -> list[dict[str, str]]:
 
 
 def _flatten(items: list[CollectionItem]) -> list[CollectionItem]:
-    out: list[CollectionItem] = []
-    for it in items:
-        if it.is_folder:
-            out.extend(_flatten(it.items))
-        else:
-            out.append(it)
-    return out
+    # Delegates to the canonical helper in storage (dedup of ~12 local copies).
+    return storage.walk_requests(items)
 
 
 @router.post("/run", response_model=BatchOutput)

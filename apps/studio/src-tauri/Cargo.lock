@@ -3792,7 +3792,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "theridion"
+name = "theridion-be"
 version = "0.0.1"
 dependencies = [
  "dirs 5.0.1",

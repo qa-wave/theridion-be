@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 #[derive(Default)]
@@ -30,6 +30,10 @@ pub struct SidecarState {
     pub port: Mutex<Option<u16>>,
     /// Auth token extracted from the ready line; sent as X-Theridion-Token.
     pub token: Mutex<Option<String>>,
+    /// Handle to the spawned sidecar process. Held for the app's lifetime so
+    /// the child isn't dropped (which would detach/orphan it); keeping it tied
+    /// to app state lets the process be reaped with the app.
+    pub child: Mutex<Option<CommandChild>>,
 }
 
 /// Spawn the bundled Python sidecar and wire its stdout to the app state.
@@ -39,7 +43,14 @@ pub struct SidecarState {
 /// `get_sidecar_port` until it returns Some.
 pub fn spawn(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let sidecar = app.shell().sidecar("theridion-sidecar")?;
-    let (mut rx, _child) = sidecar.spawn()?;
+    let (mut rx, child) = sidecar.spawn()?;
+
+    // Hold the child handle in app state so the sidecar process lifetime is
+    // tied to the app and it isn't dropped/orphaned right after spawn.
+    {
+        let state: State<SidecarState> = app.state();
+        *state.child.lock().unwrap() = Some(child);
+    }
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -62,6 +73,9 @@ pub fn spawn(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 CommandEvent::Terminated(payload) => {
                     log::warn!("sidecar terminated: code={:?} signal={:?}", payload.code, payload.signal);
+                    // Drop the now-dead child handle so state reflects reality.
+                    let state: State<SidecarState> = app_handle.state();
+                    *state.child.lock().unwrap() = None;
                     let _ = app_handle.emit("sidecar://terminated", ());
                     break;
                 }

@@ -13,6 +13,7 @@ process listing or log aggregation.
 from __future__ import annotations
 
 import atexit
+import hmac
 import logging
 import os
 import secrets
@@ -93,7 +94,6 @@ from theridion_sidecar.api.sla_check import router as sla_check_router
 from theridion_sidecar.api.loadtest_compare import router as loadtest_compare_router
 from theridion_sidecar.api.flow_graph import router as flow_graph_router
 from theridion_sidecar.api.retry_tester import router as retry_tester_router
-from theridion_sidecar.api.ratelimit_detect import router as ratelimit_detect_router
 from theridion_sidecar.api.rate_limit_detector import router as rate_limit_detector_router
 from theridion_sidecar.api.idempotency_check import router as idempotency_check_router
 from theridion_sidecar.api.pagination_walker import router as pagination_walker_router
@@ -221,10 +221,15 @@ class _TokenAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        if request.url.path in _EXEMPT_PATHS:
+        # Exempt health/diagnostics paths and CORS preflight (OPTIONS). The
+        # preflight carries no auth header by design, so 401'ing it would
+        # strip the CORS headers the browser needs before the real request.
+        if request.url.path in _EXEMPT_PATHS or request.method == "OPTIONS":
             return await call_next(request)
-        provided = request.headers.get("X-Theridion-Token", "")
-        if provided != _SIDECAR_TOKEN:
+        provided = request.headers.get("X-Theridion-Token")
+        # Reject missing/empty before comparing to avoid leaking timing info
+        # and to keep compare_digest operands well-formed.
+        if not provided or not hmac.compare_digest(provided, _SIDECAR_TOKEN):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "invalid or missing X-Theridion-Token"},
@@ -306,6 +311,14 @@ def create_app() -> FastAPI:
             )
         return {"status": "ok", "storage": str(home)}
 
+    # Middleware order matters: Starlette runs the LAST-added middleware
+    # OUTERMOST (first on the request path, last on the response path). We
+    # add the token-auth middleware first and CORS second so that CORS ends
+    # up outermost — it then attaches CORS headers even to the 401 produced
+    # by the auth middleware, and handles OPTIONS preflight (which auth
+    # explicitly exempts) without a token.
+    app.add_middleware(_TokenAuthMiddleware)
+
     # We only ever bind to 127.0.0.1, so any HTTP origin reaching us is
     # already loopback-only. Match any localhost / 127.0.0.1 port via
     # regex so dev (1420), Playwright tests (1421), and the Vite fallback
@@ -322,8 +335,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    app.add_middleware(_TokenAuthMiddleware)
 
     app.include_router(ai_router)
     app.include_router(health_router)
@@ -385,7 +396,6 @@ def create_app() -> FastAPI:
     app.include_router(loadtest_compare_router)
     app.include_router(flow_graph_router)
     app.include_router(retry_tester_router)
-    app.include_router(ratelimit_detect_router)
     app.include_router(rate_limit_detector_router)
     app.include_router(idempotency_check_router)
     app.include_router(pagination_walker_router)

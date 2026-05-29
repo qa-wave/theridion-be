@@ -106,14 +106,11 @@ class LegacyMultiEnvResult(BaseModel):
 
 
 def _flatten_requests(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Recursively flatten collection items into a list of requests."""
-    result: list[dict[str, Any]] = []
-    for item in items:
-        if item.get("is_folder"):
-            result.extend(_flatten_requests(item.get("items", [])))
-        else:
-            result.append(item)
-    return result
+    """Recursively flatten collection items into a list of requests.
+
+    Delegates to the canonical helper in storage (dedup of ~12 local copies).
+    """
+    return storage.walk_request_dicts(items)
 
 
 def _build_comparison(results: list[EnvRequestResult]) -> ComparisonSummary:

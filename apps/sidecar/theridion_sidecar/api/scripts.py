@@ -176,8 +176,13 @@ def _split_concat(expr: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def _parse_args_list(raw: str, variables: dict[str, str], context: dict[str, Any]) -> list[str]:
-    """Split a comma-separated argument list and resolve each."""
+def _split_args_raw(raw: str) -> list[str]:
+    """Split a comma-separated argument list into *unresolved* token strings.
+
+    Respects quotes and parentheses so commas inside string literals or
+    nested calls don't split arguments. Used by callers that need the raw
+    text (e.g. to detect comparison operators in assert()).
+    """
     args: list[str] = []
     depth = 0
     current: list[str] = []
@@ -209,7 +214,12 @@ def _parse_args_list(raw: str, variables: dict[str, str], context: dict[str, Any
     if current:
         args.append("".join(current))
 
-    return [_parse_arg(a, variables, context) for a in args]
+    return args
+
+
+def _parse_args_list(raw: str, variables: dict[str, str], context: dict[str, Any]) -> list[str]:
+    """Split a comma-separated argument list and resolve each."""
+    return [_parse_arg(a, variables, context) for a in _split_args_raw(raw)]
 
 
 def execute_safe_script(
@@ -282,17 +292,23 @@ def execute_safe_script(
                 headers[args[0]] = args[1]
 
             elif fn_name == "assert":
-                args = _parse_args_list(raw_args, variables, context)
-                if not args:
+                # Keep the *unresolved* first arg so comparison operators
+                # (=== / == / < / > …) survive — they'd be collapsed into a
+                # single literal if resolved up front.
+                raw_split = _split_args_raw(raw_args)
+                if not raw_split:
                     return SafeScriptOutput(
                         variables=variables, headers=headers, logs=logs,
                         assertions=assertions,
                         error=f"Line {lineno}: assert() requires at least 1 argument",
                     )
-                condition_raw = args[0]
-                message = args[1] if len(args) > 1 else "Assertion"
+                condition_raw = raw_split[0]
+                message = (
+                    _parse_arg(raw_split[1], variables, context)
+                    if len(raw_split) > 1
+                    else "Assertion"
+                )
 
-                # Evaluate simple boolean-ish conditions.
                 passed = _eval_condition(condition_raw, variables, context)
                 assertions.append(AssertionItem(passed=passed, message=message))
 
@@ -319,31 +335,111 @@ def execute_safe_script(
     )
 
 
-def _eval_condition(raw: str, variables: dict[str, str], context: dict[str, Any]) -> bool:
-    """Evaluate a simple boolean expression from an already-resolved string.
+# Comparison operators, longest-first so === is matched before ==.
+_COMPARISON_OPS: tuple[str, ...] = ("===", "!==", ">=", "<=", "==", "!=", ">", "<")
 
-    The raw value comes from ``_parse_arg`` so it's already a string.
-    We need to handle comparisons that were written as a *single* argument
-    to ``assert()``, e.g. ``assert(response.status === 200, "msg")``.
-    Since ``_parse_args_list`` splits on commas, the condition is the first
-    argument as a raw string *before* resolution.  We therefore re-parse
-    the condition here.
 
-    Supported operators: ``===``, ``!==``, ``==``, ``!=``, ``>``, ``<``,
-    ``>=``, ``<=``.
+def _coerce_numeric(value: str) -> float | None:
+    """Return *value* as a float when it looks numeric, else None."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compare(left: str, op: str, right: str) -> bool:
+    """Compare two resolved string operands using *op*.
+
+    Numeric comparison is used when both sides parse as numbers; otherwise
+    string comparison is used for (in)equality. Ordering operators on
+    non-numeric operands fall back to lexicographic comparison.
     """
-    # The *raw* value was already resolved to a string by _parse_arg.
-    # For comparison operators, we need the *unresolved* text.  Since we
-    # can't go back, we rely on the fact that simple truthy strings work:
-    # - "true"  → True
-    # - "false", "0", "", "null", "undefined" → False
-    # - any other non-empty string → True
+    lnum, rnum = _coerce_numeric(left), _coerce_numeric(right)
+    both_numeric = lnum is not None and rnum is not None
 
-    # Check for common falsy values.
-    v = raw.strip().lower()
-    if v in ("false", "0", "", "null", "undefined", "none"):
+    if op in ("==", "==="):
+        return (lnum == rnum) if both_numeric else (left == right)
+    if op in ("!=", "!=="):
+        return (lnum != rnum) if both_numeric else (left != right)
+    # Ordering operators: numeric when possible, else lexicographic.
+    a, b = (lnum, rnum) if both_numeric else (left, right)
+    if op == ">":
+        return a > b  # type: ignore[operator]
+    if op == "<":
+        return a < b  # type: ignore[operator]
+    if op == ">=":
+        return a >= b  # type: ignore[operator]
+    if op == "<=":
+        return a <= b  # type: ignore[operator]
+    return False
+
+
+def _eval_condition(raw: str, variables: dict[str, str], context: dict[str, Any]) -> bool:
+    """Evaluate an assert() condition from its *unresolved* text.
+
+    Handles comparison operators (``===`` ``!==`` ``==`` ``!=`` ``>`` ``<``
+    ``>=`` ``<=``) by resolving each side via ``_parse_arg`` and comparing,
+    e.g. ``assert(response.status === 200)`` now actually checks 200.
+    Falls back to a truthy check on the resolved value otherwise.
+    """
+    raw = raw.strip()
+
+    # Detect a comparison operator outside of quotes.
+    for op in _COMPARISON_OPS:
+        idx = _find_op_outside_quotes(raw, op)
+        if idx != -1:
+            left_raw = raw[:idx].strip()
+            right_raw = raw[idx + len(op):].strip()
+            left = _parse_arg(left_raw, variables, context)
+            right = _parse_arg(right_raw, variables, context)
+            return _compare(left, op, right)
+
+    # No operator — resolve and apply a truthy check.
+    resolved = _parse_arg(raw, variables, context).strip().lower()
+    if resolved in ("false", "0", "", "null", "undefined", "none"):
         return False
     return True
+
+
+def _find_op_outside_quotes(expr: str, op: str) -> int:
+    """Return the index of *op* in *expr* outside any quoted region, or -1.
+
+    Avoids matching shorter operators that are substrings of a longer one by
+    requiring the match not to be immediately extended (e.g. don't match
+    ``==`` inside ``===``).
+    """
+    in_quote: str | None = None
+    i = 0
+    n = len(expr)
+    oplen = len(op)
+    while i < n:
+        ch = expr[i]
+        if in_quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_quote = ch
+            i += 1
+            continue
+        if expr[i:i + oplen] == op:
+            # Reject if this is a prefix of a longer comparison operator
+            # (e.g. matching "==" where the text is "===").
+            after = expr[i + oplen: i + oplen + 1]
+            before = expr[i - 1: i]
+            if op in ("==", "!=", ">=", "<=", ">", "<") and after in ("=",):
+                i += 1
+                continue
+            if op in ("==", "!=", ">", "<") and before in ("=", "!", ">", "<"):
+                i += 1
+                continue
+            return i
+        i += 1
+    return -1
 
 
 # ---------------------------------------------------------------------------
