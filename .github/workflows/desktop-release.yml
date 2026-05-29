@@ -101,7 +101,7 @@ jobs:
 
       - name: Create GitHub Release (draft)
         id: create
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data } = await github.rest.repos.createRelease({
@@ -244,7 +244,7 @@ jobs:
     if: needs.build.result == 'success'
     steps:
       - name: Publish GitHub Release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.repos.updateRelease({
