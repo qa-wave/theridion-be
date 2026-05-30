@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Bot, CheckCircle2, ChevronDown, Clock, Code2, Copy, Download, FileCode, FolderPlus, GitCompare, Inbox, Minus, RefreshCw, Search, Shield, Star, Terminal, Upload, XCircle, Zap } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Bot, Braces, CheckCircle2, ChevronDown, Clock, Code2, Copy, Database, Download, FileCode, FolderPlus, GitCompare, Globe, Inbox, Minus, Network, Radio, RefreshCw, Search, Server, Shield, Star, Terminal, Upload, Wifi, XCircle, Zap } from "lucide-react";
 import type { Assertion } from "../state/types";
 import type { AutoCompareOutput, BodySearchMatch, ExecuteResponse, HeaderInsightsOutput, SchemaValidateOutput, TimingBreakdown } from "../lib/sidecar";
 import { sidecar } from "../lib/sidecar";
@@ -102,12 +102,18 @@ interface Props {
   onOpenAgentExplorer?: () => void;
   onNewCollection?: () => void;
   onAddAssertion?: (assertion: Assertion) => void;
+  onOpenGraphQL?: () => void;
+  onOpenSoap?: () => void;
+  onOpenGrpc?: () => void;
+  onOpenWebSocket?: () => void;
+  onOpenSse?: () => void;
+  onOpenKafka?: () => void;
 }
 
 /** Keep last 5 response times for sparkline display. */
 const responseTimeHistory: number[] = [];
 
-export function ResponsePanel({ busy, response, error, onDiff, onCodegen, consoleEntries = [], isFirstRun, onImportCollection, onOpenSwagger, onOpenAgentExplorer, onNewCollection, onAddAssertion }: Props) {
+export function ResponsePanel({ busy, response, error, onDiff, onCodegen, consoleEntries = [], isFirstRun, onImportCollection, onOpenSwagger, onOpenAgentExplorer, onNewCollection, onAddAssertion, onOpenGraphQL, onOpenSoap, onOpenGrpc, onOpenWebSocket, onOpenSse, onOpenKafka }: Props) {
   const [tab, setTab] = useState<Tab>("body");
   const panelRef = useRef<HTMLDivElement>(null);
   const [headerSearch, setHeaderSearch] = useState("");
@@ -196,7 +202,7 @@ export function ResponsePanel({ busy, response, error, onDiff, onCodegen, consol
 
   if (busy && !response) return <Loading />;
   if (error && !response) return <ErrorView error={error} />;
-  if (!response && isFirstRun) return <WelcomeScreen onImportCollection={onImportCollection} onOpenSwagger={onOpenSwagger} onOpenAgentExplorer={onOpenAgentExplorer} onNewCollection={onNewCollection} />;
+  if (!response && isFirstRun) return <WelcomeScreen onImportCollection={onImportCollection} onOpenSwagger={onOpenSwagger} onOpenAgentExplorer={onOpenAgentExplorer} onNewCollection={onNewCollection} onOpenGraphQL={onOpenGraphQL} onOpenSoap={onOpenSoap} onOpenGrpc={onOpenGrpc} onOpenWebSocket={onOpenWebSocket} onOpenSse={onOpenSse} onOpenKafka={onOpenKafka} />;
   if (!response) return <Empty />;
 
   const displayResponse = viewingHistorical ?? response;
@@ -1437,17 +1443,38 @@ function WelcomeScreen({
   onOpenSwagger,
   onOpenAgentExplorer,
   onNewCollection,
+  onOpenGraphQL,
+  onOpenSoap,
+  onOpenGrpc,
+  onOpenWebSocket,
+  onOpenSse,
+  onOpenKafka,
 }: {
   onImportCollection?: () => void;
   onOpenSwagger?: () => void;
   onOpenAgentExplorer?: () => void;
   onNewCollection?: () => void;
+  onOpenGraphQL?: () => void;
+  onOpenSoap?: () => void;
+  onOpenGrpc?: () => void;
+  onOpenWebSocket?: () => void;
+  onOpenSse?: () => void;
+  onOpenKafka?: () => void;
 }) {
   const actions = [
     { label: "Import from Postman/Insomnia", icon: Upload, onClick: onImportCollection },
     { label: "Load OpenAPI/Swagger Spec", icon: FileCode, onClick: onOpenSwagger },
     { label: "AI: Explore an API", icon: Bot, onClick: onOpenAgentExplorer },
     { label: "New Collection", icon: FolderPlus, onClick: onNewCollection },
+  ];
+  const protocols = [
+    { label: "REST", icon: Zap, accent: "text-cobweb-400", onClick: undefined, hint: "default — type a URL above" },
+    { label: "GraphQL", icon: Braces, accent: "text-pink-400", onClick: onOpenGraphQL },
+    { label: "SOAP", icon: Globe, accent: "text-sky-400", onClick: onOpenSoap },
+    { label: "gRPC", icon: Server, accent: "text-violet-400", onClick: onOpenGrpc },
+    { label: "WebSocket", icon: Wifi, accent: "text-amber-400", onClick: onOpenWebSocket },
+    { label: "SSE", icon: Radio, accent: "text-emerald-400", onClick: onOpenSse },
+    { label: "Kafka", icon: Database, accent: "text-orange-400", onClick: onOpenKafka },
   ];
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
@@ -1482,6 +1509,35 @@ function WelcomeScreen({
             {i === 0 && <span className="text-[10px] text-neutral-600">Import from Postman, Insomnia, or any cURL</span>}
           </button>
         ))}
+      </div>
+
+      <div className="mt-7 w-full max-w-md">
+        <div className="mb-2.5 flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-600">
+          <Network className="h-3.5 w-3.5" />
+          <span>Supported protocols</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {protocols.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={p.onClick}
+              disabled={!p.onClick}
+              title={p.hint ?? `Open ${p.label}`}
+              className={`group flex items-center gap-1.5 rounded-full border border-glass bg-neutral-900/50 px-3 py-1.5 text-[11px] text-neutral-300 transition ${
+                p.onClick
+                  ? "hover:-translate-y-0.5 hover:bg-white/[0.06] hover:text-neutral-100 hover:shadow-lg"
+                  : "cursor-default opacity-90"
+              }`}
+            >
+              <p.icon className={`h-3.5 w-3.5 ${p.accent}`} />
+              <span>{p.label}</span>
+              {!p.onClick && (
+                <span className="rounded bg-cobweb-950/40 px-1 text-[9px] font-medium text-cobweb-400">default</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mt-6 space-y-1 text-[11px] text-neutral-600">

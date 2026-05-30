@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Bot, Braces, Clock, Command, Database, Globe, MoreHorizontal, Pin, Plus, Search, Server, Terminal, Wifi, X } from "lucide-react";
+import { Activity, BookOpen, Bot, Braces, Clock, Command, Database, Globe, MoreHorizontal, Network, Pin, Plus, Radio, Search, Server, Terminal, Wifi, X } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { HTTP_METHOD_COLOR, isDirty } from "../state/types";
 import type { RequestTab } from "../state/types";
@@ -15,6 +15,7 @@ interface Props {
   onImportCurl: () => void;
   onOpenGraphQL: () => void;
   onOpenWebSocket: () => void;
+  onOpenSse: () => void;
   onOpenKafka: () => void;
   onOpenGrpc: () => void;
   onOpenMock: () => void;
@@ -46,6 +47,7 @@ export function RequestTabBar({
   onImportCurl,
   onOpenGraphQL,
   onOpenWebSocket,
+  onOpenSse,
   onOpenKafka,
   onOpenGrpc,
   onOpenMock,
@@ -68,6 +70,8 @@ export function RequestTabBar({
 }: Props) {
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
+  const [protocolsOpen, setProtocolsOpen] = useState(false);
+  const protocolsRef = useRef<HTMLDivElement>(null);
   const [ctxMenu, setCtxMenu] = useState<{ open: boolean; x: number; y: number; tabId: string } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
   const [tabSearchOpen, setTabSearchOpen] = useState(false);
@@ -109,6 +113,27 @@ export function RequestTabBar({
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [overflowOpen]);
+
+  // Close protocols menu on outside click.
+  useEffect(() => {
+    if (!protocolsOpen) return;
+    function onMouseDown(e: MouseEvent) {
+      if (protocolsRef.current && !protocolsRef.current.contains(e.target as Node)) {
+        setProtocolsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [protocolsOpen]);
+
+  const protocols: { label: string; icon: typeof Braces; accent: string; onClick: () => void }[] = [
+    { label: "GraphQL", icon: Braces, accent: "text-pink-400", onClick: onOpenGraphQL },
+    { label: "SOAP / WSDL", icon: Globe, accent: "text-sky-400", onClick: onOpenSoap },
+    { label: "gRPC", icon: Server, accent: "text-violet-400", onClick: onOpenGrpc },
+    { label: "WebSocket", icon: Wifi, accent: "text-amber-400", onClick: onOpenWebSocket },
+    { label: "Server-Sent Events", icon: Radio, accent: "text-emerald-400", onClick: onOpenSse },
+    { label: "Kafka", icon: Database, accent: "text-orange-400", onClick: onOpenKafka },
+  ];
 
   return (
     <div className="flex items-stretch gap-px border-b border-glass bg-neutral-925/80 pl-1">
@@ -176,12 +201,20 @@ export function RequestTabBar({
             : "text-rose-400"
             : "text-neutral-500";
           return (
-            <button
+            <div
               key={t.id}
-              type="button"
+              role="tab"
+              tabIndex={0}
+              aria-selected={active}
               onClick={() => onSelect(t.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(t.id);
+                }
+              }}
               onContextMenu={(e) => handleTabContextMenu(e, t.id)}
-              className={`group relative flex items-center gap-2 rounded-md py-1.5 text-xs transition-all duration-150 ${topBorderClass} ${
+              className={`group relative flex cursor-pointer items-center gap-2 rounded-md py-1.5 text-xs transition-all duration-150 ${topBorderClass} ${
                 t.pinned ? "max-w-[120px] px-2" : "max-w-[240px] px-3"
               } ${
                 active
@@ -240,7 +273,7 @@ export function RequestTabBar({
                   <X className="h-3 w-3" />
                 </button>
               )}
-            </button>
+            </div>
           );
         });
         })()}
@@ -258,7 +291,28 @@ export function RequestTabBar({
           <span className="text-[11px]">Cmd+K</span>
         </BarButton>
 
-        {/* Overflow menu for protocol/tool buttons */}
+        {/* Protocols menu -- always-visible, labeled launcher for every supported protocol */}
+        <div className="relative" ref={protocolsRef}>
+          <BarButton onClick={() => setProtocolsOpen((o) => !o)} title="Supported protocols" active={protocolsOpen}>
+            <Network className="h-3.5 w-3.5" />
+            <span className="text-[11px]">Protocols</span>
+          </BarButton>
+          {protocolsOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-neutral-800 bg-neutral-900 py-1 shadow-xl">
+              <div className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-600">Protocols</div>
+              {protocols.map((p) => (
+                <OverflowItem
+                  key={p.label}
+                  icon={<p.icon className={`h-3.5 w-3.5 ${p.accent}`} />}
+                  label={p.label}
+                  onClick={() => { p.onClick(); setProtocolsOpen(false); }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Overflow menu for tool buttons */}
         <div className="relative" ref={overflowRef}>
           <BarButton onClick={() => setOverflowOpen((o) => !o)} title="More tools" active={overflowOpen}>
             <MoreHorizontal className="h-3.5 w-3.5" />
@@ -268,13 +322,8 @@ export function RequestTabBar({
             <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-neutral-800 bg-neutral-900 py-1 shadow-xl">
               <OverflowItem icon={<Terminal className="h-3.5 w-3.5" />} label="cURL import" onClick={() => { onImportCurl(); setOverflowOpen(false); }} />
               <OverflowItem icon={<BookOpen className="h-3.5 w-3.5" />} label="Swagger / OpenAPI" onClick={() => { onOpenSwagger(); setOverflowOpen(false); }} />
-              <OverflowItem icon={<Braces className="h-3.5 w-3.5" />} label="GraphQL" onClick={() => { onOpenGraphQL(); setOverflowOpen(false); }} />
-              <OverflowItem icon={<Wifi className="h-3.5 w-3.5" />} label="WebSocket" onClick={() => { onOpenWebSocket(); setOverflowOpen(false); }} />
-              <OverflowItem icon={<Database className="h-3.5 w-3.5" />} label="Kafka" onClick={() => { onOpenKafka(); setOverflowOpen(false); }} />
-              <OverflowItem icon={<Server className="h-3.5 w-3.5" />} label="gRPC" onClick={() => { onOpenGrpc(); setOverflowOpen(false); }} />
               <OverflowItem icon={<Server className="h-3.5 w-3.5" />} label="Mock Server" onClick={() => { onOpenMock(); setOverflowOpen(false); }} />
               <OverflowItem icon={<Activity className="h-3.5 w-3.5" />} label="Load Test" onClick={() => { onOpenLoadTest(); setOverflowOpen(false); }} />
-              <OverflowItem icon={<Globe className="h-3.5 w-3.5" />} label="SOAP / WSDL" onClick={() => { onOpenSoap(); setOverflowOpen(false); }} />
               {onOpenAgentExplorer && (
                 <OverflowItem icon={<Bot className="h-3.5 w-3.5" />} label="AI: Explore API" onClick={() => { onOpenAgentExplorer(); setOverflowOpen(false); }} />
               )}

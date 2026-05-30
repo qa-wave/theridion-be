@@ -1052,6 +1052,7 @@ export default function App() {
           onImportCurl={() => modals.open("curlImport")}
           onOpenGraphQL={() => modals.open("graphql")}
           onOpenWebSocket={() => modals.open("webSocket")}
+          onOpenSse={() => modals.open("sse")}
           onOpenKafka={() => modals.open("kafka")}
           onOpenGrpc={() => modals.open("grpc")}
           onOpenMock={() => modals.open("mock")}
@@ -1191,6 +1192,12 @@ export default function App() {
               onOpenSwagger={() => modals.open("swagger")}
               onOpenAgentExplorer={() => modals.open("agentExplorer")}
               onNewCollection={newCollection}
+              onOpenGraphQL={() => modals.open("graphql")}
+              onOpenSoap={() => modals.open("soap")}
+              onOpenGrpc={() => modals.open("grpc")}
+              onOpenWebSocket={() => modals.open("webSocket")}
+              onOpenSse={() => modals.open("sse")}
+              onOpenKafka={() => modals.open("kafka")}
               onAddAssertion={(assertion) => {
                 patchActive({ assertions: [...active.assertions, assertion], assertionResults: null });
               }}
