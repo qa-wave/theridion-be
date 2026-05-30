@@ -48,7 +48,6 @@ interface Props {
   onSave: () => void;
   onSaveAs: () => void;
   onCopyAsCurl: () => void;
-  onCopyShareable?: () => void;
   activeEnvId?: string | null;
   environments?: EnvironmentSummary[];
   onEnvChange?: (envId: string | null) => void;
@@ -68,7 +67,6 @@ export function UrlBar({
   onSave,
   onSaveAs,
   onCopyAsCurl,
-  onCopyShareable,
   activeEnvId,
   environments,
   onEnvChange,
@@ -394,19 +392,6 @@ export function UrlBar({
         <ClipboardCopy className="h-3.5 w-3.5" />
         {copied ? "Copied!" : "cURL"}
       </button>
-
-      {/* Copy as shareable text */}
-      {onCopyShareable && (
-        <button
-          type="button"
-          onClick={onCopyShareable}
-          disabled={url.length === 0}
-          title="Copy as shareable text"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-800/60 bg-neutral-900/40 px-2 py-1.5 text-xs text-neutral-400 shadow-inner-glow hover:border-neutral-700 hover:text-neutral-200 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Share
-        </button>
-      )}
 
       {/* Environment quick switcher */}
       {environments && environments.length > 0 && onEnvChange && (

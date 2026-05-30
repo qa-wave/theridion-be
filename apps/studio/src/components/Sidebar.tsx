@@ -644,7 +644,7 @@ function CollectionNode({
         <button
           type="button"
           onClick={() => setRenaming(true)}
-          className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-neutral-200 group-hover:opacity-100"
+          className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-neutral-200 group-hover:opacity-100"
           title="Rename"
         >
           <Pencil className="h-3 w-3" />
@@ -652,7 +652,7 @@ function CollectionNode({
         <button
           type="button"
           onClick={() => onNewFolder(null)}
-          className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-neutral-200 group-hover:opacity-100"
+          className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-neutral-200 group-hover:opacity-100"
           title="New folder at root"
         >
           <FolderPlus className="h-3 w-3" />
@@ -661,7 +661,7 @@ function CollectionNode({
           <button
             type="button"
             onClick={onRunCollection}
-            className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-emerald-400 group-hover:opacity-100"
+            className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-emerald-400 group-hover:opacity-100"
             title="Run collection"
           >
             <Play className="h-3 w-3" />
@@ -671,7 +671,7 @@ function CollectionNode({
           <button
             type="button"
             onClick={onExportCurl}
-            className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-neutral-200 group-hover:opacity-100"
+            className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-neutral-200 group-hover:opacity-100"
             title="Export as cURL"
           >
             <Terminal className="h-3 w-3" />
@@ -681,7 +681,7 @@ function CollectionNode({
           <button
             type="button"
             onClick={onExportPostman}
-            className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-amber-400 group-hover:opacity-100"
+            className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-amber-400 group-hover:opacity-100"
             title="Export as Postman"
           >
             <Download className="h-3 w-3" />
@@ -691,7 +691,7 @@ function CollectionNode({
           <button
             type="button"
             onClick={onViewStats}
-            className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-violet-400 group-hover:opacity-100"
+            className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-violet-400 group-hover:opacity-100"
             title="View Statistics"
           >
             <BarChart3 className="h-3 w-3" />
@@ -701,7 +701,7 @@ function CollectionNode({
           <button
             type="button"
             onClick={onGenerateDocs}
-            className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-cobweb-400 group-hover:opacity-100"
+            className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-cobweb-400 group-hover:opacity-100"
             title="Generate Docs"
           >
             <FileText className="h-3 w-3" />
@@ -710,7 +710,7 @@ function CollectionNode({
         <button
           type="button"
           onClick={() => onDeleteCollection()}
-          className="rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-rose-400 group-hover:opacity-100"
+          className="rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-rose-400 group-hover:opacity-100"
           title="Delete collection"
         >
           <Trash2 className="h-3 w-3" />
@@ -988,7 +988,7 @@ function FolderNode({
         <button
           type="button"
           onClick={() => onDeleteFolder(folder.id)}
-          className="mr-1 rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-rose-400 group-hover:opacity-100"
+          className="mr-1 rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-rose-400 group-hover:opacity-100"
           title="Delete folder"
         >
           <Trash2 className="h-3 w-3" />
@@ -1167,7 +1167,7 @@ function RequestRow({
       <button
         type="button"
         onClick={() => onDelete()}
-        className="mr-1 rounded p-0.5 text-neutral-600 opacity-0 transition hover:bg-neutral-800 hover:text-rose-400 group-hover:opacity-100"
+        className="mr-1 rounded p-0.5 text-neutral-600 opacity-0 transition-opacity duration-150 hover:bg-neutral-800 hover:text-rose-400 group-hover:opacity-100"
         title="Delete request"
       >
         <Trash2 className="h-3 w-3" />

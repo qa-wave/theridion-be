@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Bot, Braces, CheckCircle2, ChevronDown, Clock, Code2, Copy, Database, Download, FileCode, FolderPlus, GitCompare, Globe, Inbox, Minus, Network, Radio, RefreshCw, Search, Server, Shield, Star, Terminal, Upload, Wifi, XCircle, Zap } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Bot, Braces, CheckCircle2, ChevronDown, Clock, Code2, Copy, Database, Download, FileCode, FolderPlus, GitCompare, Globe, Inbox, Minus, MoreHorizontal, Network, Radio, RefreshCw, Search, Server, Shield, Star, Terminal, Upload, Wifi, XCircle, Zap } from "lucide-react";
 import type { Assertion } from "../state/types";
 import type { AutoCompareOutput, BodySearchMatch, ExecuteResponse, HeaderInsightsOutput, SchemaValidateOutput, TimingBreakdown } from "../lib/sidecar";
 import { sidecar } from "../lib/sidecar";
@@ -301,6 +301,18 @@ function TabButton({
 
 function StatusRow({ res, onDiff, onCodegen, history, onViewHistorical, onAddAssertion }: { res: ExecuteResponse; onDiff?: () => void; onCodegen?: () => void; history?: ResponseSnapshot[]; onViewHistorical?: (snap: ResponseSnapshot) => void; onAddAssertion?: (a: Assertion) => void }) {
   const [histDropdownOpen, setHistDropdownOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
+        setActionsOpen(false);
+      }
+    }
+    if (actionsOpen) document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [actionsOpen]);
   const tone = statusTone(res.status);
   const toneGlow = {
     ok: "shadow-[0_0_16px_-4px_rgba(52,211,153,0.35)]",
@@ -439,30 +451,45 @@ function StatusRow({ res, onDiff, onCodegen, history, onViewHistorical, onAddAss
       </div>
       {/* Action buttons + URL */}
       <div className="stat-card !py-2 !px-4 flex flex-col items-center justify-center gap-1.5 overflow-hidden">
-        <div className="flex items-center gap-1.5">
-          {onCodegen && (
+        {(onCodegen || onDiff) && (
+          <div ref={actionsRef} className="relative">
             <button
               type="button"
-              onClick={onCodegen}
-              className="inline-flex items-center gap-1 rounded-lg border border-glass px-2.5 py-1 text-[10px] text-neutral-500 transition hover:bg-white/[0.06] hover:text-neutral-300"
-              title="Generate code snippet"
+              onClick={() => setActionsOpen((o) => !o)}
+              aria-label="Response actions"
+              aria-expanded={actionsOpen}
+              className={`inline-flex items-center gap-1 rounded-lg border border-glass px-2.5 py-1 text-[10px] transition hover:bg-white/[0.06] hover:text-neutral-300 ${actionsOpen ? "bg-white/[0.06] text-neutral-300" : "text-neutral-500"}`}
+              title="Response actions"
             >
-              <Code2 className="h-3 w-3" />
-              Code
+              <MoreHorizontal className="h-3 w-3" />
+              Actions
             </button>
-          )}
-          {onDiff && (
-            <button
-              type="button"
-              onClick={onDiff}
-              className="inline-flex items-center gap-1 rounded-lg border border-glass px-2.5 py-1 text-[10px] text-neutral-500 transition hover:bg-white/[0.06] hover:text-neutral-300"
-              title="Compare with previous response"
-            >
-              <GitCompare className="h-3 w-3" />
-              Diff
-            </button>
-          )}
-        </div>
+            {actionsOpen && (
+              <div className="absolute right-0 top-full z-30 mt-1 min-w-[140px] rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-lg">
+                {onCodegen && (
+                  <button
+                    type="button"
+                    onClick={() => { onCodegen(); setActionsOpen(false); }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-neutral-300 hover:bg-neutral-800"
+                  >
+                    <Code2 className="h-3 w-3 text-neutral-500" />
+                    Generate code
+                  </button>
+                )}
+                {onDiff && (
+                  <button
+                    type="button"
+                    onClick={() => { onDiff(); setActionsOpen(false); }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-neutral-300 hover:bg-neutral-800"
+                  >
+                    <GitCompare className="h-3 w-3 text-neutral-500" />
+                    Diff with previous
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <span className="truncate font-mono text-[10px] text-neutral-600">
           {res.final_url}
         </span>

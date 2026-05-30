@@ -1088,19 +1088,6 @@ export default function App() {
             onSave={() => save()}
             onSaveAs={() => setSavePopoverOpen(true)}
             onCopyAsCurl={copyAsCurl}
-            onCopyShareable={() => {
-              const lines: string[] = [];
-              lines.push(`${active.method} ${active.url}`);
-              for (const line of active.headersRaw.split("\n").filter((l) => l.trim() && !l.startsWith("#"))) {
-                lines.push(line.trim());
-              }
-              if (active.body) {
-                lines.push("");
-                lines.push(active.body);
-              }
-              void navigator.clipboard.writeText(lines.join("\n"));
-              addToast("success", "Copied shareable text");
-            }}
             activeEnvId={activeEnvId}
             environments={environments}
             onEnvChange={(envId) => {

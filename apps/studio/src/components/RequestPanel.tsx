@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, KeyRound, Server, AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, KeyRound, MoreHorizontal, Server, AlertTriangle } from "lucide-react";
 import type { Assertion, AssertionResult, AuthConfig, CertConfig, RetryConfig, RetryAttemptInfo } from "../state/types";
 import type { CertInfo, CollectionVariable, ExecuteResponse, HealCandidate, RequestExample, StoredCollection, BackoffStrategy } from "../lib/sidecar";
 import { sidecar } from "../lib/sidecar";
@@ -11,17 +11,23 @@ import { OAuth2FlowModal } from "./OAuth2FlowModal";
 
 type Tab = "params" | "headers" | "body" | "auth" | "certs" | "tests" | "scripts" | "notes" | "retry";
 
-const TABS: { id: Tab; label: string; comingSoon?: boolean }[] = [
+/** Tabs always visible in the primary rail */
+const PRIMARY_TABS: { id: Tab; label: string }[] = [
   { id: "params", label: "Params" },
   { id: "headers", label: "Headers" },
   { id: "body", label: "Body" },
   { id: "auth", label: "Auth" },
+];
+
+/** Tabs hidden behind the "•••" overflow button */
+const OVERFLOW_TABS: { id: Tab; label: string }[] = [
   { id: "certs", label: "Certs" },
   { id: "tests", label: "Tests" },
   { id: "scripts", label: "Scripts" },
   { id: "retry", label: "Retry" },
   { id: "notes", label: "Notes" },
 ];
+
 
 interface Props {
   url: string;
@@ -85,6 +91,19 @@ export function RequestPanel({
   retryAttempts,
 }: Props) {
   const [tab, setTab] = useState<Tab>("params");
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+
+  // Close overflow when clicking outside
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    }
+    if (overflowOpen) document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [overflowOpen]);
 
   // Listen for Alt+N tab switch events from App.tsx
   useEffect(() => {
@@ -95,6 +114,45 @@ export function RequestPanel({
     window.addEventListener("theridion:switch-request-tab", onSwitchTab);
     return () => window.removeEventListener("theridion:switch-request-tab", onSwitchTab);
   }, []);
+
+  const isOverflowActive = OVERFLOW_TABS.some((t) => t.id === tab);
+
+  function renderTabButton(t: { id: Tab; label: string; comingSoon?: boolean }) {
+    const active = tab === t.id;
+    const count =
+      t.id === "headers" ? countHeaders(headersRaw)
+      : t.id === "params" ? countParams(url)
+      : t.id === "tests" ? assertions.length
+      : undefined;
+    const badge = (t.id === "auth" && auth.type !== "none") || (t.id === "certs" && Boolean(certConfig.client_cert_path)) || (t.id === "notes" && notes.length > 0) || (t.id === "retry" && retryConfig?.enabled);
+    return (
+      <button
+        key={t.id}
+        type="button"
+        onClick={() => { if (!t.comingSoon) { setTab(t.id); setOverflowOpen(false); } }}
+        disabled={t.comingSoon}
+        className={`relative h-8 rounded-lg px-3 text-[11px] font-medium transition-all duration-150 ${
+          t.comingSoon
+            ? "cursor-not-allowed text-neutral-600"
+            : active
+            ? "bg-white/[0.08] text-neutral-100 shadow-sm"
+            : "text-neutral-500 hover:text-neutral-300 hover:bg-white/[0.03]"
+        }`}
+      >
+        {t.label}
+        {typeof count === "number" && count > 0 && (
+          <span className={`ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+            active ? "bg-white/[0.1] text-neutral-300" : "bg-neutral-800/80 text-neutral-500"
+          }`}>
+            {count}
+          </span>
+        )}
+        {badge && (
+          <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-cobweb-500" />
+        )}
+      </button>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -109,42 +167,61 @@ export function RequestPanel({
         </div>
       )}
       <div className="flex items-center gap-1 border-b border-glass px-2 py-1">
-        {TABS.map((t) => {
-          const active = tab === t.id;
-          const count =
-            t.id === "headers" ? countHeaders(headersRaw)
-            : t.id === "params" ? countParams(url)
-            : t.id === "tests" ? assertions.length
-            : undefined;
-          const badge = (t.id === "auth" && auth.type !== "none") || (t.id === "certs" && Boolean(certConfig.client_cert_path)) || (t.id === "notes" && notes.length > 0) || (t.id === "retry" && retryConfig?.enabled);
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => !t.comingSoon && setTab(t.id)}
-              disabled={t.comingSoon}
-              className={`relative h-8 rounded-lg px-3 text-[11px] font-medium transition-all duration-150 ${
-                t.comingSoon
-                  ? "cursor-not-allowed text-neutral-600"
-                  : active
-                  ? "bg-white/[0.08] text-neutral-100 shadow-sm"
-                  : "text-neutral-500 hover:text-neutral-300 hover:bg-white/[0.03]"
-              }`}
-            >
-              {t.label}
-              {typeof count === "number" && count > 0 && (
-                <span className={`ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
-                  active ? "bg-white/[0.1] text-neutral-300" : "bg-neutral-800/80 text-neutral-500"
-                }`}>
-                  {count}
-                </span>
-              )}
-              {badge && (
-                <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-cobweb-500" />
-              )}
-            </button>
-          );
-        })}
+        {/* Primary tabs — always visible */}
+        {PRIMARY_TABS.map((t) => renderTabButton(t))}
+
+        {/* Overflow "•••" button */}
+        <div ref={overflowRef} className="relative ml-auto">
+          <button
+            type="button"
+            onClick={() => setOverflowOpen((o) => !o)}
+            aria-label="More tabs"
+            aria-expanded={overflowOpen}
+            className={`flex h-8 items-center gap-0.5 rounded-lg px-2 text-[11px] font-medium transition-all duration-150 ${
+              overflowOpen || isOverflowActive
+                ? "bg-white/[0.08] text-neutral-100"
+                : "text-neutral-500 hover:text-neutral-300 hover:bg-white/[0.03]"
+            }`}
+          >
+            <MoreHorizontal size={14} />
+            {/* Badge when an overflow tab is active */}
+            {isOverflowActive && !overflowOpen && (
+              <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-cobweb-400" />
+            )}
+          </button>
+
+          {overflowOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-xl">
+              {OVERFLOW_TABS.map((t) => {
+                const active = tab === t.id;
+                const badge = (t.id === "certs" && Boolean(certConfig.client_cert_path)) || (t.id === "notes" && notes.length > 0) || (t.id === "retry" && retryConfig?.enabled) || (t.id === "tests" && assertions.length > 0);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => { setTab(t.id); setOverflowOpen(false); }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                      active
+                        ? "bg-white/[0.08] text-neutral-100"
+                        : "text-neutral-300 hover:bg-neutral-800"
+                    }`}
+                  >
+                    {t.label}
+                    {t.id === "tests" && assertions.length > 0 && (
+                      <span className="ml-auto rounded-full bg-neutral-700 px-1.5 text-[10px] text-neutral-400">
+                        {assertions.length}
+                      </span>
+                    )}
+                    {badge && t.id !== "tests" && (
+                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-cobweb-400" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {savedAs && (
           <ExamplesDropdown
             collectionId={savedAs.collectionId}
